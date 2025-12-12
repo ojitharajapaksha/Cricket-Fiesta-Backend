@@ -1,0 +1,643 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== USER & AUTH ====================
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  USER
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model User {
+  id            String          @id @default(uuid())
+  email         String          @unique
+  password      String?         // Nullable for users who login via Gmail only
+  firstName     String?
+  lastName      String?
+  traineeId     String?         @unique // For organizing committee members
+  role          UserRole        @default(USER)
+  approvalStatus ApprovalStatus @default(PENDING)
+  approvedBy    String?         // Super Admin who approved
+  approvedAt    DateTime?
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  // Relations
+  notifications Notification[]
+  incidents     Incident[]
+  analytics     Analytics[]
+  player        Player?         @relation(fields: [playerId], references: [id])
+  playerId      String?         @unique
+}
+
+// ==================== PLAYER MANAGEMENT ====================
+
+model Player {
+  id              String         @id @default(uuid())
+  traineeId       String         @unique
+  fullName        String
+  gender          Gender
+  contactNumber   String
+  emergencyContact String?
+  email           String?
+  department      String
+  position        PlayerPosition
+  battingStyle    String?
+  bowlingStyle    String?
+  experienceLevel ExperienceLevel
+  attended        Boolean        @default(false)
+  attendedAt      DateTime?
+  qrCode          String         @unique
+  
+  // Team Assignment
+  teamId          String?
+  team            Team?          @relation(fields: [teamId], references: [id])
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  // Relations
+  matchPerformances MatchPerformance[]
+  awards          Award[]
+  photos          Photo[]
+  user            User?          // Back-relation for User.player
+}
+
+// ==================== FOOD REGISTRATION ====================
+
+model FoodRegistration {
+  id              String         @id @default(uuid())
+  traineeId       String         @unique
+  fullName        String
+  email           String?
+  contactNumber   String
+  department      String
+  foodPreference  FoodPreference
+  qrCode          String         @unique
+  foodCollected   Boolean        @default(false)
+  foodCollectedAt DateTime?
+  
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+}
+
+enum Gender {
+  MALE
+  FEMALE
+  OTHER
+}
+
+enum PlayerPosition {
+  BATSMAN
+  BOWLER
+  ALL_ROUNDER
+  WICKET_KEEPER
+}
+
+enum ExperienceLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  PROFESSIONAL
+}
+
+enum FoodPreference {
+  VEGETARIAN
+  NON_VEGETARIAN
+}
+
+// ==================== TEAM MANAGEMENT ====================
+
+model Team {
+  id              String   @id @default(uuid())
+  name            String   @unique
+  color           String   @default("#3b82f6")
+  captainId       String?
+  viceCaptainId   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  // Relations
+  players         Player[]
+  homeMatches     Match[]  @relation("HomeTeam")
+  awayMatches     Match[]  @relation("AwayTeam")
+  standings       TournamentStanding[]
+}
+
+// ==================== TOURNAMENT & LEAGUE MANAGEMENT ====================
+
+model Tournament {
+  id              String           @id @default(uuid())
+  name            String
+  description     String?
+  type            TournamentType
+  format          MatchType
+  startDate       DateTime
+  endDate         DateTime
+  status          TournamentStatus @default(UPCOMING)
+  numberOfTeams   Int
+  maxPlayersPerTeam Int           @default(11)
+  minPlayersPerTeam Int           @default(8)
+  entryFee        Float?
+  prizePool       Float?
+  rules           String?          // JSON string with tournament rules
+  createdBy       String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  
+  // Relations
+  matches         Match[]
+  standings       TournamentStanding[]
+}
+
+model TournamentStanding {
+  id              String     @id @default(uuid())
+  tournamentId    String
+  tournament      Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  teamId          String
+  team            Team       @relation(fields: [teamId], references: [id])
+  
+  matchesPlayed   Int        @default(0)
+  wins            Int        @default(0)
+  losses          Int        @default(0)
+  draws           Int        @default(0)
+  noResult        Int        @default(0)
+  points          Int        @default(0)
+  netRunRate      Float      @default(0)
+  
+  @@unique([tournamentId, teamId])
+}
+
+enum TournamentType {
+  LEAGUE
+  KNOCKOUT
+  ROUND_ROBIN
+  MIXED
+  FRIENDLY
+  EXHIBITION
+}
+
+enum TournamentStatus {
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+// ==================== MATCH MANAGEMENT ====================
+
+model Match {
+  id              String        @id @default(uuid())
+  matchNumber     Int           @unique
+  matchType       MatchType
+  
+  tournamentId    String?
+  tournament      Tournament?   @relation(fields: [tournamentId], references: [id])
+  
+  homeTeamId      String
+  homeTeam        Team          @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  
+  awayTeamId      String
+  awayTeam        Team          @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  
+  status          MatchStatus   @default(SCHEDULED)
+  scheduledTime   DateTime
+  actualStartTime DateTime?
+  endTime         DateTime?
+  
+  venue           String
+  overs           Int           @default(10)
+  
+  homeScore       String?
+  awayScore       String?
+  winnerId        String?
+  result          String?
+  
+  tossWinnerId    String?
+  tossDecision    TossDecision?
+  
+  umpire1         String?
+  umpire2         String?
+  scorer          String?
+  
+  manOfTheMatchId String?
+  
+  round           String?       // For knockout: Quarter Final, Semi Final, Final
+  
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  commentary      Commentary[]
+  performances    MatchPerformance[]
+  liveUpdates     LiveUpdate[]
+}
+
+enum MatchType {
+  T10
+  T15
+  T20
+}
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  COMPLETED
+  CANCELLED
+  RAIN_DELAY
+}
+
+enum TossDecision {
+  BAT
+  BOWL
+}
+
+// ==================== MATCH PERFORMANCE ====================
+
+model MatchPerformance {
+  id            String   @id @default(uuid())
+  
+  matchId       String
+  match         Match    @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  
+  playerId      String
+  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  
+  // Batting Stats
+  runs          Int      @default(0)
+  balls         Int      @default(0)
+  fours         Int      @default(0)
+  sixes         Int      @default(0)
+  strikeRate    Float?
+  
+  // Bowling Stats
+  overs         Float    @default(0)
+  wickets       Int      @default(0)
+  runsConceded  Int      @default(0)
+  maidens       Int      @default(0)
+  economy       Float?
+  
+  // Fielding Stats
+  catches       Int      @default(0)
+  runOuts       Int      @default(0)
+  stumpings     Int      @default(0)
+  
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([matchId, playerId])
+}
+
+// ==================== LIVE COMMENTARY ====================
+
+model Commentary {
+  id          String         @id @default(uuid())
+  matchId     String
+  match       Match          @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  
+  over        Float
+  ball        Int
+  commentary  String
+  type        CommentaryType
+  timestamp   DateTime       @default(now())
+
+  @@index([matchId, timestamp])
+}
+
+enum CommentaryType {
+  WICKET
+  BOUNDARY
+  FOUR
+  SIX
+  DOT
+  SINGLE
+  DOUBLE
+  TRIPLE
+  WIDE
+  NO_BALL
+  BYE
+  LEG_BYE
+  MILESTONE
+  GENERAL
+}
+
+// ==================== FOOD MANAGEMENT ====================
+
+model FoodCounter {
+  id              String   @id @default(uuid())
+  counterName     String   @unique
+  foodType        FoodType
+  currentQueue    Int      @default(0)
+  estimatedWait   Int      @default(0)
+  status          CounterStatus @default(OPEN)
+  throughputRate  Float    @default(10.0)
+  lastUpdated     DateTime @updatedAt
+
+  @@index([status])
+}
+
+enum FoodType {
+  VEGETARIAN
+  NON_VEGETARIAN
+}
+
+enum CounterStatus {
+  OPEN
+  CLOSED
+  BUSY
+  FAST
+}
+
+// ==================== COMMITTEE MANAGEMENT ====================
+
+model Committee {
+  id                    String   @id @default(uuid())
+  fullName              String
+  department            String
+  whatsappNumber        String
+  emergencyContact      String?
+  email                 String?
+  assignedTeam          String?
+  experienceLevel       ExperienceLevel
+  
+  availabilityPlanning  Boolean  @default(false)
+  availabilitySetup     Boolean  @default(false)
+  availabilityMorning   Boolean  @default(false)
+  availabilityAfternoon Boolean  @default(false)
+  
+  checkedIn             Boolean  @default(false)
+  checkInTime           DateTime?
+  checkOutTime          DateTime?
+  
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([department])
+}
+
+// ==================== AWARDS ====================
+
+model Award {
+  id          String   @id @default(uuid())
+  category    String
+  winnerId    String?
+  winner      Player?  @relation(fields: [winnerId], references: [id])
+  teamName    String?
+  stats       String?
+  announced   Boolean  @default(false)
+  announcedAt DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// ==================== REAL-TIME FEATURES ====================
+
+// Live Updates Feed
+model LiveUpdate {
+  id              String         @id @default(uuid())
+  type            UpdateType
+  title           String
+  message         String
+  priority        Priority       @default(NORMAL)
+  targetAudience  String?        // "all", "team:xyz", "department:abc"
+  mediaUrls       String[]
+  reactions       Json           @default("{}")
+  
+  matchId         String?
+  match           Match?         @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  
+  createdBy       String
+  createdAt       DateTime       @default(now())
+  expiresAt       DateTime?
+
+  @@index([type, createdAt])
+  @@index([priority, createdAt])
+}
+
+enum UpdateType {
+  MATCH_SCORE
+  ANNOUNCEMENT
+  FOOD_UPDATE
+  EMERGENCY
+  AWARD
+  GENERAL
+  WEATHER
+  PHOTO_UPLOAD
+}
+
+enum Priority {
+  CRITICAL
+  HIGH
+  NORMAL
+  LOW
+}
+
+// Notifications
+model Notification {
+  id          String             @id @default(uuid())
+  userId      String?
+  user        User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  title       String
+  message     String
+  type        NotificationType
+  read        Boolean            @default(false)
+  actionUrl   String?
+  createdAt   DateTime           @default(now())
+
+  @@index([userId, read, createdAt])
+}
+
+enum NotificationType {
+  MATCH_REMINDER
+  MATCH_STARTING
+  FOOD_READY
+  TEAM_ASSIGNED
+  AWARD_CEREMONY
+  EMERGENCY
+  GENERAL
+  RAIN_DELAY
+}
+
+// Photo Gallery
+model Photo {
+  id          String   @id @default(uuid())
+  url         String
+  caption     String?
+  uploadedBy  String
+  
+  playerId    String?
+  player      Player?  @relation(fields: [playerId], references: [id], onDelete: SetNull)
+  
+  matchId     String?
+  tags        String[]
+  likes       Int      @default(0)
+  approved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([approved, createdAt])
+  @@index([matchId])
+}
+
+// Polls & Voting
+model Poll {
+  id          String   @id @default(uuid())
+  question    String
+  options     String[]
+  votes       Json     @default("{}")
+  active      Boolean  @default(true)
+  category    String   // "man_of_match", "best_catch", etc.
+  matchId     String?
+  createdAt   DateTime @default(now())
+  expiresAt   DateTime
+
+  @@index([active, category])
+}
+
+// Incidents & Emergency Management
+model Incident {
+  id          String         @id @default(uuid())
+  type        IncidentType
+  severity    Severity
+  location    String
+  description String
+  
+  reportedBy  String
+  reporter    User           @relation(fields: [reportedBy], references: [id])
+  
+  assignedTo  String?
+  status      IncidentStatus @default(REPORTED)
+  timeline    Json           @default("[]")
+  
+  createdAt   DateTime       @default(now())
+  resolvedAt  DateTime?
+
+  @@index([status, severity])
+}
+
+enum IncidentType {
+  MEDICAL
+  SECURITY
+  WEATHER
+  TECHNICAL
+  OTHER
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum IncidentStatus {
+  REPORTED
+  RESPONDING
+  RESOLVED
+}
+
+// Analytics Tracking
+model Analytics {
+  id          String   @id @default(uuid())
+  event       String
+  category    String
+  data        Json
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  timestamp   DateTime @default(now())
+
+  @@index([event, category, timestamp])
+}
+
+// WhatsApp Message Log
+model WhatsAppMessage {
+  id          String   @id @default(uuid())
+  recipient   String
+  message     String
+  status      MessageStatus @default(PENDING)
+  sentAt      DateTime @default(now())
+  deliveredAt DateTime?
+
+  @@index([status, sentAt])
+}
+
+enum MessageStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+// Weather Data
+model WeatherData {
+  id          String   @id @default(uuid())
+  temperature Float
+  condition   String
+  rainProb    Float
+  uvIndex     Float
+  timestamp   DateTime @default(now())
+}
+
+// System Settings
+model Setting {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  value       String
+  description String?
+  updatedAt   DateTime @updatedAt
+}
+
+// Budget Management
+model Budget {
+  id          String         @id @default(uuid())
+  category    String         // e.g., "Food", "Equipment", "Venue", "Prizes", "Marketing"
+  description String?
+  allocated   Float          // Allocated budget amount
+  spent       Float          @default(0)
+  remaining   Float          // Calculated: allocated - spent
+  status      BudgetStatus   @default(ACTIVE)
+  createdBy   String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  
+  // Relations
+  expenses    BudgetExpense[]
+}
+
+model BudgetExpense {
+  id          String   @id @default(uuid())
+  budgetId    String
+  budget      Budget   @relation(fields: [budgetId], references: [id], onDelete: Cascade)
+  description String
+  amount      Float
+  receipt     String?  // URL to receipt/invoice
+  paidBy      String   // Name of person who paid
+  paidDate    DateTime
+  approvedBy  String?  // Super Admin who approved
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+enum BudgetStatus {
+  ACTIVE
+  COMPLETED
+  EXCEEDED
+  CANCELLED
+}
