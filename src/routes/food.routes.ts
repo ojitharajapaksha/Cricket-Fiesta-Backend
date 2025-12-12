@@ -10,13 +10,14 @@ const router = Router();
 // Get all food registrations
 router.get('/registrations', async (req, res, next) => {
   try {
-    const { department, foodPreference, foodCollected, traineeId } = req.query;
+    const { department, foodPreference, foodCollected, traineeId, email } = req.query;
     
     const where: any = {};
     if (department) where.department = department;
     if (foodPreference) where.foodPreference = foodPreference;
     if (foodCollected !== undefined) where.foodCollected = foodCollected === 'true';
     if (traineeId) where.traineeId = { contains: traineeId as string, mode: 'insensitive' };
+    if (email) where.email = { equals: email as string, mode: 'insensitive' };
     
     const registrations = await prisma.foodRegistration.findMany({
       where,
