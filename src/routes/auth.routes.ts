@@ -8,7 +8,7 @@ import { UserRole, ApprovalStatus } from '@prisma/client';
 
 const router = Router();
 
-// User login (Gmail from Google Form registration)
+// User login (Gmail from Google Form registration - Players or Food Registrants)
 router.post('/login/user', async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -23,44 +23,89 @@ router.post('/login/user', async (req, res, next) => {
       include: { user: true }
     });
 
-    if (!player) {
-      throw new AppError('No player found with this email. Please register through Google Form first.', 404);
-    }
+    // If player found, login as player
+    if (player) {
+      let user = player.user;
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            email,
+            firstName: player.fullName.split(' ')[0],
+            lastName: player.fullName.split(' ').slice(1).join(' '),
+            role: UserRole.USER,
+            approvalStatus: ApprovalStatus.APPROVED,
+            playerId: player.id,
+          }
+        });
+      }
 
-    // Create or get user account
-    let user = player.user;
-    if (!user) {
-      user = await prisma.user.create({
+      const token = jwt.sign(
+        { userId: user.id, email: user.email, role: user.role },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { expiresIn: '7d' }
+      );
+
+      return res.json({
+        status: 'success',
         data: {
-          email,
-          firstName: player.fullName.split(' ')[0],
-          lastName: player.fullName.split(' ').slice(1).join(' '),
-          role: UserRole.USER,
-          approvalStatus: ApprovalStatus.APPROVED, // Auto-approve users
-          playerId: player.id,
+          token,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: `${user.firstName} ${user.lastName}`,
+            role: user.role,
+            playerId: player.id
+          }
         }
       });
     }
 
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, role: user.role },
-      process.env.JWT_SECRET || 'your-secret-key',
-      { expiresIn: '7d' }
-    );
-
-    res.json({
-      status: 'success',
-      data: {
-        token,
-        user: {
-          id: user.id,
-          email: user.email,
-          name: `${user.firstName} ${user.lastName}`,
-          role: user.role,
-          playerId: player.id
-        }
-      }
+    // Check if food registrant exists with this email
+    const foodRegistrant = await prisma.foodRegistration.findFirst({
+      where: { email }
     });
+
+    if (foodRegistrant) {
+      let user = await prisma.user.findFirst({
+        where: { email }
+      });
+
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            email,
+            firstName: foodRegistrant.fullName.split(' ')[0],
+            lastName: foodRegistrant.fullName.split(' ').slice(1).join(' '),
+            role: UserRole.USER,
+            approvalStatus: ApprovalStatus.APPROVED,
+            traineeId: foodRegistrant.traineeId,
+          }
+        });
+      }
+
+      const token = jwt.sign(
+        { userId: user.id, email: user.email, role: user.role },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { expiresIn: '7d' }
+      );
+
+      return res.json({
+        status: 'success',
+        data: {
+          token,
+          user: {
+            id: user.id,
+            email: user.email,
+            name: `${user.firstName} ${user.lastName}`,
+            role: user.role,
+            foodRegistrationId: foodRegistrant.id
+          }
+        }
+      });
+    }
+
+    // Neither player nor food registrant found
+    throw new AppError('No registration found with this email. Please register through Google Form first.', 404);
   } catch (error) {
     next(error);
   }
