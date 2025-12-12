@@ -45,7 +45,11 @@ const httpServer = createServer(app);
 // Initialize Socket.IO
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+    origin: [
+      process.env.FRONTEND_URL || 'http://localhost:3000',
+      'http://localhost:3000',
+      'https://cricket-fiesta-frontend.vercel.app'
+    ],
     methods: ['GET', 'POST'],
     credentials: true,
   },
@@ -55,7 +59,11 @@ const io = new Server(httpServer, {
 app.use(helmet()); // Security headers
 app.use(compression()); // Compress responses
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: [
+    process.env.FRONTEND_URL || 'http://localhost:3000',
+    'http://localhost:3000',
+    'https://cricket-fiesta-frontend.vercel.app'
+  ],
   credentials: true,
 }));
 app.use(express.json());
