@@ -37,6 +37,7 @@ model User {
   firstName     String?
   lastName      String?
   traineeId     String?         @unique // For organizing committee members
+  projectName   String?         // Project name for players/trainees
   role          UserRole        @default(USER)
   userType      UserType        @default(PLAYER) // Type of user: PLAYER, TRAINEE, COMMITTEE
   approvalStatus ApprovalStatus @default(PENDING)

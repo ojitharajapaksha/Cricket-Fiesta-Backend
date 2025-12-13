@@ -51,6 +51,12 @@ router.get('/', authenticate, requireUser, async (req, res, next) => {
       where,
       include: {
         team: true,
+        user: {
+          select: {
+            id: true,
+            projectName: true,
+          }
+        },
       },
       orderBy: {
         createdAt: 'desc',
@@ -68,11 +74,12 @@ router.get('/', authenticate, requireUser, async (req, res, next) => {
     // Create a map for quick lookup
     const foodRegMap = new Map(foodRegistrations.map(f => [f.traineeId, f]));
 
-    // Combine player data with food registration
+    // Combine player data with food registration and project name
     const playersWithFood = players.map(player => {
       const foodReg = foodRegMap.get(player.traineeId);
       return {
         ...player,
+        projectName: player.user?.projectName || null,
         foodRegistration: foodReg ? {
           id: foodReg.id,
           foodPreference: foodReg.foodPreference,

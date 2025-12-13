@@ -201,6 +201,7 @@ router.post('/google', async (req, res, next) => {
           role: existingUser.role,
           userType,
           traineeId: existingUser.traineeId,
+          projectName: existingUser.projectName,
           picture,
           ...additionalData
         }
@@ -1154,6 +1155,74 @@ router.delete('/login-requests/:id', authenticate, requireSuperAdmin, async (req
     res.json({
       status: 'success',
       message: 'Login request deleted'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update user project name
+router.put('/profile/project-name', authenticate, async (req, res, next) => {
+  try {
+    const userId = (req as any).user.userId;
+    const { projectName } = req.body;
+
+    if (!projectName || projectName.trim() === '') {
+      throw new AppError('Project name is required', 400);
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { projectName: projectName.trim() },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        projectName: true,
+        role: true,
+        userType: true,
+        traineeId: true,
+      }
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Project name updated successfully',
+      data: updatedUser
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get current user profile
+router.get('/profile', authenticate, async (req, res, next) => {
+  try {
+    const userId = (req as any).user.userId;
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        projectName: true,
+        role: true,
+        userType: true,
+        traineeId: true,
+        createdAt: true,
+      }
+    });
+
+    if (!user) {
+      throw new AppError('User not found', 404);
+    }
+
+    res.json({
+      status: 'success',
+      data: user
     });
   } catch (error) {
     next(error);
