@@ -68,21 +68,29 @@ router.post('/google', async (req, res, next) => {
     let userType = 'user';
     let role: UserRole = 'USER';
     let additionalData: any = {};
+    let autoApprove = false; // Flag for auto-approval
+    let dbUserType: 'PLAYER' | 'TRAINEE' | 'COMMITTEE' = 'PLAYER';
 
     if (committee) {
       userType = 'committee';
+      dbUserType = 'COMMITTEE';
       role = 'ADMIN'; // OC members get ADMIN role
       additionalData.committeeId = committee.id;
       additionalData.assignedTeam = committee.assignedTeam;
+      autoApprove = true; // Committee members are auto-approved
     } else if (player) {
       userType = 'player';
+      dbUserType = 'PLAYER';
       role = 'USER';
       additionalData.playerId = player.id;
       additionalData.team = player.team;
+      autoApprove = true; // Players are auto-approved
     } else if (foodRegistrant) {
       userType = 'food';
+      dbUserType = 'TRAINEE';
       role = 'USER';
       additionalData.foodRegistrationId = foodRegistrant.id;
+      autoApprove = false; // Trainees need admin approval
     }
 
     // Check if user exists in User table
@@ -122,10 +130,13 @@ router.post('/google', async (req, res, next) => {
         }
       });
     } else {
-      // First time login - create user with PENDING status
+      // First time login - create user
       const nameParts = userName.split(' ');
       const firstName = nameParts[0] || '';
       const lastName = nameParts.slice(1).join(' ') || '';
+      
+      // Auto-approve if user is registered (player or committee, but NOT trainees)
+      const approvalStatus = autoApprove ? 'APPROVED' : 'PENDING';
       
       existingUser = await prisma.user.create({
         data: {
@@ -133,21 +144,25 @@ router.post('/google', async (req, res, next) => {
           firstName,
           lastName,
           role: role,
-          approvalStatus: 'PENDING',
+          userType: dbUserType,
+          approvalStatus: approvalStatus,
+          approvedAt: autoApprove ? new Date() : null,
           traineeId: player?.traineeId || committee?.traineeId || foodRegistrant?.traineeId,
         }
       });
 
-      // Return pending status for first-time users
-      return res.status(202).json({
-        status: 'pending',
-        message: 'Your first login requires admin approval. Please wait for admin to approve your access.',
-        data: {
-          requiresApproval: true,
-          email: email,
-          name: userName,
-        }
-      });
+      // If not auto-approved, return pending status
+      if (!autoApprove) {
+        return res.status(202).json({
+          status: 'pending',
+          message: 'Your first login requires admin approval. Please wait for admin to approve your access.',
+          data: {
+            requiresApproval: true,
+            email: email,
+            name: userName,
+          }
+        });
+      }
     }
 
     // Generate JWT token
@@ -747,7 +762,7 @@ router.get('/admin/pending', authenticate, requireSuperAdmin, async (req, res, n
   try {
     const pendingAdmins = await prisma.user.findMany({
       where: {
-        role: UserRole.ADMIN,
+        role: { in: [UserRole.ADMIN, UserRole.USER] },
         approvalStatus: ApprovalStatus.PENDING
       },
       select: {
@@ -756,6 +771,7 @@ router.get('/admin/pending', authenticate, requireSuperAdmin, async (req, res, n
         firstName: true,
         lastName: true,
         traineeId: true,
+        role: true,
         approvalStatus: true,
         createdAt: true
       },
@@ -776,7 +792,7 @@ router.get('/admin/all', authenticate, requireSuperAdmin, async (req, res, next)
   try {
     const admins = await prisma.user.findMany({
       where: {
-        role: UserRole.ADMIN
+        role: { in: [UserRole.ADMIN, UserRole.USER] }
       },
       select: {
         id: true,
@@ -784,6 +800,7 @@ router.get('/admin/all', authenticate, requireSuperAdmin, async (req, res, next)
         firstName: true,
         lastName: true,
         traineeId: true,
+        role: true,
         approvalStatus: true,
         approvedBy: true,
         approvedAt: true,
@@ -837,7 +854,7 @@ router.get('/admin/approval-history', authenticate, requireSuperAdmin, async (re
   }
 });
 
-// Approve/Reject admin (Super Admin only)
+// Approve/Reject admin or user (Super Admin only)
 router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -852,12 +869,15 @@ router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, r
     });
 
     if (!user) {
-      throw new AppError('Admin not found', 404);
+      throw new AppError('User not found', 404);
     }
 
-    if (user.role !== UserRole.ADMIN) {
-      throw new AppError('User is not an admin', 400);
+    // Allow approval for both ADMIN (OC members) and USER (Players)
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.USER) {
+      throw new AppError('Cannot modify Super Admin accounts', 400);
     }
+
+    const roleLabel = user.role === UserRole.ADMIN ? 'OC Member' : 'Player';
 
     // Update user and create history in a transaction
     const [updatedUser] = await prisma.$transaction([
@@ -874,6 +894,7 @@ router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, r
           firstName: true,
           lastName: true,
           traineeId: true,
+          role: true,
           approvalStatus: true,
           approvedAt: true
         }
@@ -890,7 +911,7 @@ router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, r
 
     res.json({
       status: 'success',
-      message: `Admin ${status.toLowerCase()} successfully`,
+      message: `${roleLabel} ${status.toLowerCase()} successfully`,
       data: { user: updatedUser }
     });
   } catch (error) {

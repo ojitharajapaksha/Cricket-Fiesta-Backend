@@ -24,6 +24,12 @@ enum ApprovalStatus {
   REJECTED
 }
 
+enum UserType {
+  PLAYER
+  TRAINEE
+  COMMITTEE
+}
+
 model User {
   id            String          @id @default(uuid())
   email         String          @unique
@@ -32,6 +38,7 @@ model User {
   lastName      String?
   traineeId     String?         @unique // For organizing committee members
   role          UserRole        @default(USER)
+  userType      UserType        @default(PLAYER) // Type of user: PLAYER, TRAINEE, COMMITTEE
   approvalStatus ApprovalStatus @default(PENDING)
   approvedBy    String?         // Super Admin who approved
   approvedAt    DateTime?
