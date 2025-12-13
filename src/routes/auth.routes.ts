@@ -147,7 +147,7 @@ router.post('/google', async (req, res, next) => {
           userType: dbUserType,
           approvalStatus: approvalStatus,
           approvedAt: autoApprove ? new Date() : null,
-          traineeId: player?.traineeId || committee?.traineeId || foodRegistrant?.traineeId,
+          traineeId: player?.traineeId || foodRegistrant?.traineeId,
         }
       });
 
@@ -179,7 +179,7 @@ router.post('/google', async (req, res, next) => {
           where: { id: committee.id },
           data: { 
             checkedIn: true,
-            checkedInAt: new Date()
+            checkInTime: new Date()
           }
         });
       } catch (checkInError) {
