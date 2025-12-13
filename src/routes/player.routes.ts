@@ -23,7 +23,6 @@ router.get('/public', async (req, res, next) => {
           select: {
             id: true,
             name: true,
-            shortName: true,
           }
         }
       },
