@@ -1,18 +1,26 @@
 import nodemailer from 'nodemailer';
 import { logger } from './logger';
 
+// Determine if using secure connection (port 465)
+const smtpPort = parseInt(process.env.SMTP_PORT || '465');
+const isSecure = smtpPort === 465;
+
 // Create transporter with timeout settings
+// Using port 465 with SSL for better compatibility with cloud providers
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: parseInt(process.env.SMTP_PORT || '587'),
-  secure: false, // true for 465, false for other ports
+  port: smtpPort,
+  secure: isSecure, // true for 465, false for other ports
   auth: {
     user: process.env.SMTP_USER,
     pass: process.env.SMTP_PASSWORD,
   },
-  connectionTimeout: 10000, // 10 seconds
-  greetingTimeout: 10000,
-  socketTimeout: 15000,
+  connectionTimeout: 30000, // 30 seconds
+  greetingTimeout: 30000,
+  socketTimeout: 30000,
+  tls: {
+    rejectUnauthorized: false // Allow self-signed certificates
+  }
 });
 
 // Verify transporter connection
