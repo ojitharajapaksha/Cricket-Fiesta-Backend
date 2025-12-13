@@ -34,9 +34,16 @@ router.post('/otp/request', async (req, res, next) => {
 
     // Get user name
     const userName = player?.fullName || foodRegistrant?.fullName || committee?.fullName || 'User';
+    
+    // Normalize email for consistent storage
+    const normalizedEmail = email.toLowerCase().trim();
 
-    // Delete any existing OTPs for this email
-    await prisma.oTP.deleteMany({ where: { email } });
+    // Delete any existing OTPs for this email (case-insensitive)
+    await prisma.oTP.deleteMany({ 
+      where: { 
+        email: { equals: normalizedEmail, mode: 'insensitive' } 
+      } 
+    });
 
     // Generate new OTP
     const otp = generateOTP();
@@ -45,25 +52,27 @@ router.post('/otp/request', async (req, res, next) => {
     // Save OTP to database
     await prisma.oTP.create({
       data: {
-        email,
+        email: normalizedEmail,
         code: otp,
         type: 'LOGIN',
         expiresAt,
       }
     });
 
-    // Send OTP email
-    await sendOTPEmail({
-      to: email,
+    // Send OTP email (non-blocking to avoid timeout)
+    sendOTPEmail({
+      to: normalizedEmail,
       name: userName,
       otp,
+    }).catch(err => {
+      console.error('Failed to send OTP email:', err);
     });
 
     res.json({
       status: 'success',
       message: 'OTP sent successfully to your email',
       data: {
-        email,
+        email: normalizedEmail,
         expiresIn: 600, // 10 minutes in seconds
       }
     });
@@ -81,10 +90,13 @@ router.post('/otp/verify', async (req, res, next) => {
       throw new AppError('Email and OTP are required', 400);
     }
 
-    // Find valid OTP
+    // Normalize email
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Find valid OTP (case-insensitive)
     const otpRecord = await prisma.oTP.findFirst({
       where: {
-        email,
+        email: { equals: normalizedEmail, mode: 'insensitive' },
         code: otp,
         verified: false,
         expiresAt: { gt: new Date() }
@@ -101,9 +113,9 @@ router.post('/otp/verify', async (req, res, next) => {
       data: { verified: true }
     });
 
-    // Check if there's an existing approved user
+    // Check if there's an existing approved user (case-insensitive)
     const existingUser = await prisma.user.findFirst({
-      where: { email }
+      where: { email: { equals: normalizedEmail, mode: 'insensitive' } }
     });
 
     if (existingUser) {
@@ -244,10 +256,13 @@ router.post('/otp/resend', async (req, res, next) => {
       throw new AppError('Email is required', 400);
     }
 
-    // Check rate limiting - only allow resend after 1 minute
+    // Normalize email
+    const normalizedEmail = email.toLowerCase().trim();
+
+    // Check rate limiting - only allow resend after 1 minute (case-insensitive)
     const recentOTP = await prisma.oTP.findFirst({
       where: {
-        email,
+        email: { equals: normalizedEmail, mode: 'insensitive' },
         createdAt: { gt: new Date(Date.now() - 60 * 1000) }
       }
     });
@@ -257,9 +272,9 @@ router.post('/otp/resend', async (req, res, next) => {
     }
 
     // Check if user exists (case-insensitive)
-    const player = await prisma.player.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
-    const foodRegistrant = await prisma.foodRegistration.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
-    const committee = await prisma.committee.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const player = await prisma.player.findFirst({ where: { email: { equals: normalizedEmail, mode: 'insensitive' } } });
+    const foodRegistrant = await prisma.foodRegistration.findFirst({ where: { email: { equals: normalizedEmail, mode: 'insensitive' } } });
+    const committee = await prisma.committee.findFirst({ where: { email: { equals: normalizedEmail, mode: 'insensitive' } } });
 
     if (!player && !foodRegistrant && !committee) {
       throw new AppError('No registration found with this email', 404);
@@ -267,8 +282,12 @@ router.post('/otp/resend', async (req, res, next) => {
 
     const userName = player?.fullName || foodRegistrant?.fullName || committee?.fullName || 'User';
 
-    // Delete old OTPs
-    await prisma.oTP.deleteMany({ where: { email } });
+    // Delete old OTPs (case-insensitive)
+    await prisma.oTP.deleteMany({ 
+      where: { 
+        email: { equals: normalizedEmail, mode: 'insensitive' } 
+      } 
+    });
 
     // Generate new OTP
     const otp = generateOTP();
@@ -276,24 +295,27 @@ router.post('/otp/resend', async (req, res, next) => {
 
     await prisma.oTP.create({
       data: {
-        email,
+        email: normalizedEmail,
         code: otp,
         type: 'LOGIN',
         expiresAt,
       }
     });
 
-    await sendOTPEmail({
-      to: email,
+    // Send OTP email (non-blocking)
+    sendOTPEmail({
+      to: normalizedEmail,
       name: userName,
       otp,
+    }).catch(err => {
+      console.error('Failed to resend OTP email:', err);
     });
 
     res.json({
       status: 'success',
       message: 'OTP resent successfully',
       data: {
-        email,
+        email: normalizedEmail,
         expiresIn: 600,
       }
     });
