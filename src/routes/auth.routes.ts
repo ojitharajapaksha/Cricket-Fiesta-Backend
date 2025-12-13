@@ -196,7 +196,7 @@ router.post('/otp/verify', async (req, res, next) => {
     } else if (committee) {
       userType = 'committee';
       fullName = committee.fullName;
-      traineeId = committee.traineeId || '';
+      traineeId = ''; // Committee members don't have traineeId
       department = committee.department || '';
     } else if (foodRegistrant) {
       userType = 'food';
