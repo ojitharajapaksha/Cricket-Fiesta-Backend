@@ -44,6 +44,70 @@ model User {
   analytics     Analytics[]
   player        Player?         @relation(fields: [playerId], references: [id])
   playerId      String?         @unique
+  approvalHistory ApprovalHistory[] @relation("UserApprovalHistory")
+  actionsPerformed ApprovalHistory[] @relation("ApprovalPerformedBy")
+}
+
+// ==================== APPROVAL HISTORY ====================
+
+model ApprovalHistory {
+  id          String         @id @default(uuid())
+  userId      String
+  user        User           @relation("UserApprovalHistory", fields: [userId], references: [id])
+  action      ApprovalStatus
+  performedBy String
+  performer   User           @relation("ApprovalPerformedBy", fields: [performedBy], references: [id])
+  reason      String?
+  createdAt   DateTime       @default(now())
+
+  @@index([userId])
+  @@index([performedBy])
+}
+
+// ==================== OTP VERIFICATION ====================
+
+model OTP {
+  id        String   @id @default(uuid())
+  email     String
+  code      String
+  type      OTPType  @default(LOGIN)
+  expiresAt DateTime
+  verified  Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([email])
+  @@index([code])
+}
+
+enum OTPType {
+  LOGIN
+  VERIFICATION
+}
+
+// ==================== USER LOGIN REQUESTS ====================
+
+enum LoginRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model UserLoginRequest {
+  id          String             @id @default(uuid())
+  email       String             @unique
+  fullName    String
+  userType    String             // 'player', 'committee', 'food'
+  traineeId   String?
+  department  String?
+  status      LoginRequestStatus @default(PENDING)
+  reviewedBy  String?            // Admin who reviewed
+  reviewedAt  DateTime?
+  reviewNote  String?            // Reason for rejection
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  @@index([email])
+  @@index([status])
 }
 
 // ==================== PLAYER MANAGEMENT ====================

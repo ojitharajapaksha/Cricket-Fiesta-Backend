@@ -26,17 +26,83 @@ router.post('/bulk-import', async (req, res, next) => {
     const { members } = req.body;
     const results = { imported: 0, failed: 0, errors: [] as string[] };
 
+    // Helper function to find column value by partial key match
+    const findValue = (obj: any, ...searchTerms: string[]) => {
+      for (const term of searchTerms) {
+        // First try exact match
+        if (obj[term] !== undefined) return obj[term];
+        // Then try partial match (case-insensitive)
+        const key = Object.keys(obj).find(k => k.toLowerCase().includes(term.toLowerCase()));
+        if (key && obj[key] !== undefined) return obj[key];
+      }
+      return undefined;
+    };
+
     for (const member of members) {
       try {
+        // Find the correct column names from Google Form export using flexible matching
+        const fullName = findValue(member, 'Full Name', 'fullName', 'Name');
+        const department = findValue(member, 'Department', 'department');
+        const whatsappNumber = findValue(member, 'WhatsApp Number', 'WhatsApp', 'whatsappNumber') || '';
+        const emergencyContact = findValue(member, 'Emergency Contact', 'emergencyContact');
+        const assignedTeam = findValue(member, 'Assigned Team', 'Team', 'assignedTeam');
+        
+        // Get email - could be in multiple columns from Google Form
+        const email = findValue(member, 'Email Address', 'Email', 'email');
+        
+        // Parse experience level from the long column name
+        // Enum values: BEGINNER, INTERMEDIATE, ADVANCED, PROFESSIONAL
+        const experienceKey = Object.keys(member).find(key => 
+          key.toLowerCase().includes('prior experience') || 
+          key.toLowerCase().includes('experience')
+        );
+        let experienceLevel = 'BEGINNER';
+        if (experienceKey && member[experienceKey]) {
+          const exp = member[experienceKey].toLowerCase();
+          if (exp.includes('extensive') || exp.includes('3+')) {
+            experienceLevel = 'PROFESSIONAL';
+          } else if (exp.includes('some experience')) {
+            experienceLevel = 'INTERMEDIATE';
+          } else if (exp.includes('eager') || exp.includes('no,') || exp.includes('but eager')) {
+            experienceLevel = 'BEGINNER';
+          }
+        }
+        
+        // Parse availability columns
+        const availabilityPlanning = Object.keys(member).some(key => 
+          key.toLowerCase().includes('planning') && 
+          member[key]?.toLowerCase()?.includes('fully available')
+        );
+        const availabilitySetup = Object.keys(member).some(key => 
+          key.toLowerCase().includes('setup') && 
+          member[key]?.toLowerCase()?.includes('fully available')
+        );
+        const availabilityMorning = Object.keys(member).some(key => 
+          key.toLowerCase().includes('morning') && 
+          member[key]?.toLowerCase()?.includes('fully available')
+        );
+        const availabilityAfternoon = Object.keys(member).some(key => 
+          key.toLowerCase().includes('afternoon') && 
+          member[key]?.toLowerCase()?.includes('fully available')
+        );
+
+        if (!fullName) {
+          throw new Error('Full Name is required');
+        }
+
         await prisma.committee.create({
           data: {
-            fullName: member['Full Name'] || member.fullName,
-            department: member.Department || member.department,
-            whatsappNumber: member.WhatsApp || member.whatsappNumber,
-            email: member.Email || member.email,
-            assignedTeam: member.Team || member.assignedTeam,
-            experienceLevel: (member.Experience || member.experienceLevel || 'NONE').toUpperCase(),
-            emergencyContact: member['Emergency Contact'] || member.emergencyContact,
+            fullName: fullName.trim(),
+            department: department?.trim() || 'Unknown',
+            whatsappNumber: whatsappNumber?.toString().trim() || '',
+            email: email?.trim(),
+            assignedTeam: assignedTeam?.trim(),
+            experienceLevel: experienceLevel as any,
+            emergencyContact: emergencyContact?.toString().trim(),
+            availabilityPlanning,
+            availabilitySetup,
+            availabilityMorning,
+            availabilityAfternoon,
           }
         });
         results.imported++;
@@ -50,7 +116,42 @@ router.post('/bulk-import', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// Check-in a committee member
+// Check-in committee member by email (for auto check-in on dashboard login)
+// NOTE: This route must come BEFORE /:id/check-in to avoid route conflicts
+router.post('/check-in-by-email', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ status: 'error', message: 'Email is required' });
+    }
+
+    // Find committee member by email (case-insensitive)
+    const member = await prisma.committee.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } }
+    });
+
+    if (!member) {
+      return res.status(404).json({ status: 'error', message: 'Committee member not found' });
+    }
+
+    // Only check-in if not already checked in
+    if (!member.checkedIn) {
+      const updatedMember = await prisma.committee.update({
+        where: { id: member.id },
+        data: {
+          checkedIn: true,
+          checkInTime: new Date()
+        }
+      });
+      return res.json({ status: 'success', data: updatedMember, message: 'Checked in successfully' });
+    }
+
+    res.json({ status: 'success', data: member, message: 'Already checked in' });
+  } catch (error) { next(error); }
+});
+
+// Check-in a committee member by ID
 router.post('/:id/check-in', async (req, res, next) => {
   try {
     const member = await prisma.committee.update({

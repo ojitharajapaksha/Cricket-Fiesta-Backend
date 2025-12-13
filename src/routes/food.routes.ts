@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma';
 import { generateQRCode } from '../utils/qrGenerator';
 import { AppError } from '../middleware/errorHandler';
-import { sendQRCodeEmail } from '../utils/emailService';
+import { sendQRCodeEmail, sendFoodCollectionConfirmationEmail } from '../utils/emailService';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 
 const router = Router();
@@ -202,13 +202,26 @@ router.post('/registrations/:id/collect', async (req, res, next) => {
       throw new AppError('Food already collected', 400);
     }
     
+    const collectedAt = new Date();
     const updated = await prisma.foodRegistration.update({
       where: { id: req.params.id },
       data: {
         foodCollected: true,
-        foodCollectedAt: new Date(),
+        foodCollectedAt: collectedAt,
       },
     });
+    
+    // Send confirmation email (don't await - fire and forget)
+    if (registration.email) {
+      sendFoodCollectionConfirmationEmail({
+        to: registration.email,
+        name: registration.fullName,
+        traineeId: registration.traineeId,
+        department: registration.department,
+        foodPreference: registration.foodPreference,
+        collectedAt,
+      }).catch(() => {}); // Silently handle email errors
+    }
     
     res.json({ status: 'success', data: updated });
   } catch (error) {
@@ -237,13 +250,26 @@ router.post('/scan', async (req, res, next) => {
       throw new AppError('Food already collected', 400);
     }
     
+    const collectedAt = new Date();
     const updated = await prisma.foodRegistration.update({
       where: { traineeId },
       data: {
         foodCollected: true,
-        foodCollectedAt: new Date(),
+        foodCollectedAt: collectedAt,
       },
     });
+    
+    // Send confirmation email (don't await - fire and forget)
+    if (registration.email) {
+      sendFoodCollectionConfirmationEmail({
+        to: registration.email,
+        name: registration.fullName,
+        traineeId: registration.traineeId,
+        department: registration.department,
+        foodPreference: registration.foodPreference,
+        collectedAt,
+      }).catch(() => {}); // Silently handle email errors
+    }
     
     res.json({
       status: 'success',

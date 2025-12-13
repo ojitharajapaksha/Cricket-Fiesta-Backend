@@ -5,10 +5,304 @@ import { prisma } from '../utils/prisma';
 import { AppError } from '../middleware/errorHandler';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { UserRole, ApprovalStatus } from '@prisma/client';
+import { sendOTPEmail } from '../utils/emailService';
 
 const router = Router();
 
-// User login (Gmail from Google Form registration - Players or Food Registrants)
+// Generate 6-digit OTP
+const generateOTP = (): string => {
+  return Math.floor(100000 + Math.random() * 900000).toString();
+};
+
+// Request OTP for user login
+router.post('/otp/request', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      throw new AppError('Email is required', 400);
+    }
+
+    // Check if user exists in any of the registration tables (case-insensitive)
+    const player = await prisma.player.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const foodRegistrant = await prisma.foodRegistration.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const committee = await prisma.committee.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+
+    if (!player && !foodRegistrant && !committee) {
+      throw new AppError('No registration found with this email. Please register through Google Form first.', 404);
+    }
+
+    // Get user name
+    const userName = player?.fullName || foodRegistrant?.fullName || committee?.fullName || 'User';
+
+    // Delete any existing OTPs for this email
+    await prisma.oTP.deleteMany({ where: { email } });
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    // Save OTP to database
+    await prisma.oTP.create({
+      data: {
+        email,
+        code: otp,
+        type: 'LOGIN',
+        expiresAt,
+      }
+    });
+
+    // Send OTP email
+    await sendOTPEmail({
+      to: email,
+      name: userName,
+      otp,
+    });
+
+    res.json({
+      status: 'success',
+      message: 'OTP sent successfully to your email',
+      data: {
+        email,
+        expiresIn: 600, // 10 minutes in seconds
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Verify OTP and login
+router.post('/otp/verify', async (req, res, next) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      throw new AppError('Email and OTP are required', 400);
+    }
+
+    // Find valid OTP
+    const otpRecord = await prisma.oTP.findFirst({
+      where: {
+        email,
+        code: otp,
+        verified: false,
+        expiresAt: { gt: new Date() }
+      }
+    });
+
+    if (!otpRecord) {
+      throw new AppError('Invalid or expired OTP', 401);
+    }
+
+    // Mark OTP as verified
+    await prisma.oTP.update({
+      where: { id: otpRecord.id },
+      data: { verified: true }
+    });
+
+    // Check if there's an existing approved user
+    const existingUser = await prisma.user.findFirst({
+      where: { email }
+    });
+
+    if (existingUser) {
+      // Check approval status
+      if (existingUser.approvalStatus === 'REJECTED') {
+        throw new AppError('Your login request has been rejected. Please contact the administrator.', 403);
+      }
+      
+      if (existingUser.approvalStatus === 'PENDING') {
+        throw new AppError('Your login request is pending approval. Please wait for admin approval.', 403);
+      }
+
+      // User is approved - generate token
+      const token = jwt.sign(
+        { userId: existingUser.id, email: existingUser.email, role: existingUser.role },
+        process.env.JWT_SECRET || 'your-secret-key',
+        { expiresIn: '30d' }
+      );
+
+      // Get additional data (case-insensitive email matching)
+      const player = await prisma.player.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+      const committee = await prisma.committee.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+      const foodRegistrant = await prisma.foodRegistration.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+
+      let userType = 'user';
+      let additionalData: any = {};
+
+      if (player) {
+        userType = 'player';
+        additionalData.playerId = player.id;
+      } else if (committee) {
+        userType = 'committee';
+        additionalData.committeeId = committee.id;
+        additionalData.assignedTeam = committee.assignedTeam;
+      } else if (foodRegistrant) {
+        userType = 'food';
+        additionalData.foodRegistrationId = foodRegistrant.id;
+      }
+
+      // Clean up old OTPs
+      await prisma.oTP.deleteMany({ where: { email, verified: true } });
+
+      return res.json({
+        status: 'success',
+        message: 'Login successful',
+        data: {
+          token,
+          user: {
+            id: existingUser.id,
+            email: existingUser.email,
+            name: `${existingUser.firstName} ${existingUser.lastName}`,
+            role: existingUser.role,
+            userType,
+            ...additionalData
+          }
+        }
+      });
+    }
+
+    // First-time login - check for existing login request
+    const existingRequest = await prisma.userLoginRequest.findFirst({
+      where: { email }
+    });
+
+    if (existingRequest) {
+      if (existingRequest.status === 'REJECTED') {
+        throw new AppError('Your login request was rejected. Reason: ' + (existingRequest.reviewNote || 'No reason provided'), 403);
+      }
+      if (existingRequest.status === 'PENDING') {
+        throw new AppError('Your login request is pending approval. Please wait for admin to approve your request.', 403);
+      }
+      // If approved, this shouldn't happen as user should exist
+    }
+
+    // New user - create login request for approval (case-insensitive email matching)
+    const player = await prisma.player.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const committee = await prisma.committee.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const foodRegistrant = await prisma.foodRegistration.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+
+    let userType = 'user';
+    let fullName = '';
+    let traineeId = '';
+    let department = '';
+
+    if (player) {
+      userType = 'player';
+      fullName = player.fullName;
+      traineeId = player.traineeId;
+      department = player.department;
+    } else if (committee) {
+      userType = 'committee';
+      fullName = committee.fullName;
+      traineeId = committee.traineeId || '';
+      department = committee.department || '';
+    } else if (foodRegistrant) {
+      userType = 'food';
+      fullName = foodRegistrant.fullName;
+      traineeId = foodRegistrant.traineeId;
+      department = foodRegistrant.department;
+    }
+
+    // Create login request
+    await prisma.userLoginRequest.create({
+      data: {
+        email,
+        fullName,
+        userType,
+        traineeId: traineeId || null,
+        department: department || null,
+        status: 'PENDING',
+      }
+    });
+
+    // Clean up OTP
+    await prisma.oTP.deleteMany({ where: { email, verified: true } });
+
+    // Return pending approval response
+    res.status(202).json({
+      status: 'pending',
+      message: 'Your login request has been submitted and is pending approval from an administrator.',
+      data: {
+        requiresApproval: true,
+        email,
+        fullName,
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Resend OTP
+router.post('/otp/resend', async (req, res, next) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      throw new AppError('Email is required', 400);
+    }
+
+    // Check rate limiting - only allow resend after 1 minute
+    const recentOTP = await prisma.oTP.findFirst({
+      where: {
+        email,
+        createdAt: { gt: new Date(Date.now() - 60 * 1000) }
+      }
+    });
+
+    if (recentOTP) {
+      throw new AppError('Please wait 1 minute before requesting a new OTP', 429);
+    }
+
+    // Check if user exists (case-insensitive)
+    const player = await prisma.player.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const foodRegistrant = await prisma.foodRegistration.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    const committee = await prisma.committee.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+
+    if (!player && !foodRegistrant && !committee) {
+      throw new AppError('No registration found with this email', 404);
+    }
+
+    const userName = player?.fullName || foodRegistrant?.fullName || committee?.fullName || 'User';
+
+    // Delete old OTPs
+    await prisma.oTP.deleteMany({ where: { email } });
+
+    // Generate new OTP
+    const otp = generateOTP();
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
+
+    await prisma.oTP.create({
+      data: {
+        email,
+        code: otp,
+        type: 'LOGIN',
+        expiresAt,
+      }
+    });
+
+    await sendOTPEmail({
+      to: email,
+      name: userName,
+      otp,
+    });
+
+    res.json({
+      status: 'success',
+      message: 'OTP resent successfully',
+      data: {
+        email,
+        expiresIn: 600,
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// User login (Gmail from Google Form registration - Players or Food Registrants) - LEGACY
 router.post('/login/user', async (req, res, next) => {
   try {
     const { email } = req.body;
@@ -257,11 +551,77 @@ router.get('/admin/pending', authenticate, requireSuperAdmin, async (req, res, n
   }
 });
 
+// Get all admins with their status (Super Admin only)
+router.get('/admin/all', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const admins = await prisma.user.findMany({
+      where: {
+        role: UserRole.ADMIN
+      },
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        traineeId: true,
+        approvalStatus: true,
+        approvedBy: true,
+        approvedAt: true,
+        createdAt: true
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({
+      status: 'success',
+      data: { admins }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get approval history (Super Admin only)
+router.get('/admin/approval-history', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const history = await prisma.approvalHistory.findMany({
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true,
+            traineeId: true
+          }
+        },
+        performer: {
+          select: {
+            id: true,
+            email: true,
+            firstName: true,
+            lastName: true
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100 // Last 100 actions
+    });
+
+    res.json({
+      status: 'success',
+      data: { history }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Approve/Reject admin (Super Admin only)
 router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { status } = req.body; // 'APPROVED' or 'REJECTED'
+    const { status, reason } = req.body; // 'APPROVED' or 'REJECTED'
 
     if (!status || !['APPROVED', 'REJECTED'].includes(status)) {
       throw new AppError('Valid approval status required (APPROVED or REJECTED)', 400);
@@ -279,23 +639,34 @@ router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, r
       throw new AppError('User is not an admin', 400);
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id },
-      data: {
-        approvalStatus: status as ApprovalStatus,
-        approvedBy: req.user!.userId,
-        approvedAt: new Date()
-      },
-      select: {
-        id: true,
-        email: true,
-        firstName: true,
-        lastName: true,
-        traineeId: true,
-        approvalStatus: true,
-        approvedAt: true
-      }
-    });
+    // Update user and create history in a transaction
+    const [updatedUser] = await prisma.$transaction([
+      prisma.user.update({
+        where: { id },
+        data: {
+          approvalStatus: status as ApprovalStatus,
+          approvedBy: req.user!.userId,
+          approvedAt: new Date()
+        },
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          traineeId: true,
+          approvalStatus: true,
+          approvedAt: true
+        }
+      }),
+      prisma.approvalHistory.create({
+        data: {
+          userId: id,
+          action: status as ApprovalStatus,
+          performedBy: req.user!.userId,
+          reason: reason || null
+        }
+      })
+    ]);
 
     res.json({
       status: 'success',
@@ -340,6 +711,208 @@ router.get('/me', authenticate, async (req, res, next) => {
     res.json({
       status: 'success',
       data: { user }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ==================== USER LOGIN REQUEST MANAGEMENT ====================
+
+// Get all pending login requests (Super Admin only)
+router.get('/login-requests', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { status } = req.query;
+    
+    const where: any = {};
+    if (status && ['PENDING', 'APPROVED', 'REJECTED'].includes(status as string)) {
+      where.status = status;
+    }
+
+    const requests = await prisma.userLoginRequest.findMany({
+      where,
+      orderBy: { createdAt: 'desc' }
+    });
+
+    res.json({
+      status: 'success',
+      data: requests
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get pending login requests count
+router.get('/login-requests/count', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const count = await prisma.userLoginRequest.count({
+      where: { status: 'PENDING' }
+    });
+
+    res.json({
+      status: 'success',
+      data: { count }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Approve login request (Super Admin only)
+router.post('/login-requests/:id/approve', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { teamId } = req.body; // Optional team assignment for players
+    const adminUser = (req as any).user;
+
+    const loginRequest = await prisma.userLoginRequest.findUnique({
+      where: { id }
+    });
+
+    if (!loginRequest) {
+      throw new AppError('Login request not found', 404);
+    }
+
+    if (loginRequest.status !== 'PENDING') {
+      throw new AppError('This request has already been processed', 400);
+    }
+
+    // Update request status
+    await prisma.userLoginRequest.update({
+      where: { id },
+      data: {
+        status: 'APPROVED',
+        reviewedBy: adminUser.id,
+        reviewedAt: new Date()
+      }
+    });
+
+    // Create user account based on user type
+    const nameParts = loginRequest.fullName.split(' ');
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ');
+
+    let playerId = null;
+    if (loginRequest.userType === 'player') {
+      const player = await prisma.player.findFirst({
+        where: { email: loginRequest.email }
+      });
+      playerId = player?.id || null;
+
+      // Assign team to player if teamId provided
+      if (player && teamId) {
+        await prisma.player.update({
+          where: { id: player.id },
+          data: { teamId }
+        });
+      }
+    }
+
+    // Create the user
+    const user = await prisma.user.create({
+      data: {
+        email: loginRequest.email,
+        firstName,
+        lastName,
+        role: UserRole.USER,
+        approvalStatus: ApprovalStatus.APPROVED,
+        approvedBy: adminUser.id,
+        approvedAt: new Date(),
+        traineeId: loginRequest.traineeId,
+        playerId,
+      }
+    });
+
+    // Record in approval history
+    await prisma.approvalHistory.create({
+      data: {
+        userId: user.id,
+        action: ApprovalStatus.APPROVED,
+        performedBy: adminUser.id,
+        reason: teamId ? `First-time login approved with team assignment` : 'First-time login approved'
+      }
+    });
+
+    // Get team info if assigned
+    let teamInfo = null;
+    if (teamId) {
+      teamInfo = await prisma.team.findUnique({
+        where: { id: teamId },
+        select: { id: true, name: true, color: true }
+      });
+    }
+
+    res.json({
+      status: 'success',
+      message: 'Login request approved successfully',
+      data: { user, team: teamInfo }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Reject login request (Super Admin only)
+router.post('/login-requests/:id/reject', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const adminUser = (req as any).user;
+
+    const loginRequest = await prisma.userLoginRequest.findUnique({
+      where: { id }
+    });
+
+    if (!loginRequest) {
+      throw new AppError('Login request not found', 404);
+    }
+
+    if (loginRequest.status !== 'PENDING') {
+      throw new AppError('This request has already been processed', 400);
+    }
+
+    // Update request status
+    await prisma.userLoginRequest.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        reviewedBy: adminUser.id,
+        reviewedAt: new Date(),
+        reviewNote: reason || 'No reason provided'
+      }
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Login request rejected',
+      data: { id }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Delete login request (for re-trying) - Super Admin only
+router.delete('/login-requests/:id', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+
+    const loginRequest = await prisma.userLoginRequest.findUnique({
+      where: { id }
+    });
+
+    if (!loginRequest) {
+      throw new AppError('Login request not found', 404);
+    }
+
+    await prisma.userLoginRequest.delete({
+      where: { id }
+    });
+
+    res.json({
+      status: 'success',
+      message: 'Login request deleted'
     });
   } catch (error) {
     next(error);
