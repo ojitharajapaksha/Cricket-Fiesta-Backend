@@ -26,6 +26,7 @@ import authRoutes from './routes/auth.routes';
 import dashboardRoutes from './routes/dashboard.routes';
 import budgetRoutes from './routes/budget.routes';
 import tournamentRoutes from './routes/tournament.routes';
+import announcementRoutes from './routes/announcement.routes';
 
 // Import WebSocket handlers
 import { initializeWebSocket } from './websocket/socketHandlers';
@@ -98,6 +99,7 @@ app.use('/api/photos', photoRoutes);
 app.use('/api/polls', pollRoutes);
 app.use('/api/incidents', incidentRoutes);
 app.use('/api/analytics', analyticsRoutes);
+app.use('/api/announcements', announcementRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/budget', budgetRoutes);
 app.use('/api/tournaments', tournamentRoutes);

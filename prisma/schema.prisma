@@ -707,3 +707,33 @@ enum BudgetStatus {
   EXCEEDED
   CANCELLED
 }
+
+// ==================== ANNOUNCEMENTS/POPUPS ====================
+
+model Announcement {
+  id          String           @id @default(uuid())
+  title       String
+  content     String           @db.Text
+  imageUrl    String?
+  linkUrl     String?
+  linkText    String?
+  type        AnnouncementType @default(INFO)
+  isActive    Boolean          @default(true)
+  priority    Int              @default(0)  // Higher priority shows first
+  startDate   DateTime         @default(now())
+  endDate     DateTime?
+  createdBy   String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([isActive])
+  @@index([startDate, endDate])
+}
+
+enum AnnouncementType {
+  INFO
+  WARNING
+  SUCCESS
+  EVENT
+  PROMOTION
+}
