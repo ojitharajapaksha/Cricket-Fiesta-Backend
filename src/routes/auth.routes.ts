@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler';
 import { authenticate, requireSuperAdmin } from '../middleware/auth';
 import { UserRole, ApprovalStatus } from '@prisma/client';
 import { sendOTPEmail } from '../utils/emailService';
+import { verifyFirebaseToken, getFirebaseInitError } from '../utils/firebase';
 
 const router = Router();
 
@@ -13,6 +14,197 @@ const router = Router();
 const generateOTP = (): string => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
+
+// Google Sign-In with Firebase
+router.post('/google', async (req, res, next) => {
+  try {
+    const { idToken } = req.body;
+
+    if (!idToken) {
+      throw new AppError('Firebase ID token is required', 400);
+    }
+
+    // Check if Firebase is properly configured
+    const firebaseError = getFirebaseInitError();
+    if (firebaseError) {
+      throw new AppError(`Firebase not configured: ${firebaseError}`, 500);
+    }
+
+    // Verify Firebase token
+    const decodedToken = await verifyFirebaseToken(idToken);
+    
+    if (!decodedToken) {
+      throw new AppError('Invalid or expired token. Please try signing in again.', 401);
+    }
+
+    const email = decodedToken.email?.toLowerCase().trim();
+    const name = decodedToken.name || decodedToken.email?.split('@')[0] || 'User';
+    const picture = decodedToken.picture;
+
+    if (!email) {
+      throw new AppError('Email not found in Google account', 400);
+    }
+
+    // Check if user exists in any registration table (case-insensitive)
+    const player = await prisma.player.findFirst({ 
+      where: { email: { equals: email, mode: 'insensitive' } },
+      include: { team: true }
+    });
+    const foodRegistrant = await prisma.foodRegistration.findFirst({ 
+      where: { email: { equals: email, mode: 'insensitive' } } 
+    });
+    const committee = await prisma.committee.findFirst({ 
+      where: { email: { equals: email, mode: 'insensitive' } } 
+    });
+
+    if (!player && !foodRegistrant && !committee) {
+      throw new AppError('No registration found with this email. Please register through Google Form first.', 404);
+    }
+
+    // Get user name from registration
+    const userName = player?.fullName || foodRegistrant?.fullName || committee?.fullName || name;
+
+    // Determine user type and role
+    let userType = 'user';
+    let role: UserRole = 'USER';
+    let additionalData: any = {};
+
+    if (committee) {
+      userType = 'committee';
+      role = 'ADMIN'; // OC members get ADMIN role
+      additionalData.committeeId = committee.id;
+      additionalData.assignedTeam = committee.assignedTeam;
+    } else if (player) {
+      userType = 'player';
+      role = 'USER';
+      additionalData.playerId = player.id;
+      additionalData.team = player.team;
+    } else if (foodRegistrant) {
+      userType = 'food';
+      role = 'USER';
+      additionalData.foodRegistrationId = foodRegistrant.id;
+    }
+
+    // Check if user exists in User table
+    let existingUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } }
+    });
+
+    if (existingUser) {
+      // Check approval status
+      if (existingUser.approvalStatus === 'REJECTED') {
+        throw new AppError('Your login request has been rejected. Please contact the administrator.', 403);
+      }
+      
+      if (existingUser.approvalStatus === 'PENDING') {
+        // Return pending status
+        return res.status(202).json({
+          status: 'pending',
+          message: 'Your login request is pending approval. Please wait for admin approval.',
+          data: {
+            requiresApproval: true,
+            email: email,
+            name: userName,
+          }
+        });
+      }
+
+      // User is approved - update last login
+      const nameParts = userName.split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: { 
+          firstName,
+          lastName,
+        }
+      });
+    } else {
+      // First time login - create user with PENDING status
+      const nameParts = userName.split(' ');
+      const firstName = nameParts[0] || '';
+      const lastName = nameParts.slice(1).join(' ') || '';
+      
+      existingUser = await prisma.user.create({
+        data: {
+          email: email,
+          firstName,
+          lastName,
+          role: role,
+          approvalStatus: 'PENDING',
+          traineeId: player?.traineeId || committee?.traineeId || foodRegistrant?.traineeId,
+        }
+      });
+
+      // Return pending status for first-time users
+      return res.status(202).json({
+        status: 'pending',
+        message: 'Your first login requires admin approval. Please wait for admin to approve your access.',
+        data: {
+          requiresApproval: true,
+          email: email,
+          name: userName,
+        }
+      });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { userId: existingUser.id, email: existingUser.email, role: existingUser.role },
+      process.env.JWT_SECRET || 'your-secret-key',
+      { expiresIn: '30d' }
+    );
+
+    // Auto check-in for committee members
+    if (committee) {
+      try {
+        await prisma.committee.update({
+          where: { id: committee.id },
+          data: { 
+            checkedIn: true,
+            checkedInAt: new Date()
+          }
+        });
+      } catch (checkInError) {
+        console.error('Auto check-in error:', checkInError);
+      }
+    }
+
+    res.json({
+      status: 'success',
+      message: 'Login successful',
+      data: {
+        token,
+        user: {
+          id: existingUser.id,
+          email: existingUser.email,
+          name: userName,
+          firstName: userName.split(' ')[0],
+          lastName: userName.split(' ').slice(1).join(' '),
+          role: existingUser.role,
+          userType,
+          traineeId: existingUser.traineeId,
+          picture,
+          ...additionalData
+        }
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Check Firebase status (for debugging)
+router.get('/firebase-status', async (req, res) => {
+  const error = getFirebaseInitError();
+  res.json({
+    status: error ? 'error' : 'ok',
+    message: error || 'Firebase is properly configured',
+    hasServiceAccountKey: !!process.env.FIREBASE_SERVICE_ACCOUNT_KEY
+  });
+});
 
 // Request OTP for user login
 router.post('/otp/request', async (req, res, next) => {
