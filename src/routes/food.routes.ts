@@ -23,8 +23,22 @@ router.get('/registrations', async (req, res, next) => {
       where,
       orderBy: { createdAt: 'desc' },
     });
+
+    // Get all traineeIds to fetch user project names
+    const traineeIds = registrations.map(r => r.traineeId);
+    const users = await prisma.user.findMany({
+      where: { traineeId: { in: traineeIds } },
+      select: { traineeId: true, projectName: true }
+    });
+    const userMap = new Map(users.map(u => [u.traineeId, u.projectName]));
+
+    // Add projectName to each registration
+    const registrationsWithProject = registrations.map(reg => ({
+      ...reg,
+      projectName: userMap.get(reg.traineeId) || null
+    }));
     
-    res.json({ status: 'success', data: registrations });
+    res.json({ status: 'success', data: registrationsWithProject });
   } catch (error) {
     next(error);
   }
