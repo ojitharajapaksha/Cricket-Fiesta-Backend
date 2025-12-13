@@ -59,14 +59,17 @@ router.post('/otp/request', async (req, res, next) => {
       }
     });
 
-    // Send OTP email (non-blocking to avoid timeout)
-    sendOTPEmail({
-      to: normalizedEmail,
-      name: userName,
-      otp,
-    }).catch(err => {
-      console.error('Failed to send OTP email:', err);
-    });
+    // Send OTP email
+    try {
+      await sendOTPEmail({
+        to: normalizedEmail,
+        name: userName,
+        otp,
+      });
+    } catch (emailError) {
+      console.error('Failed to send OTP email:', emailError);
+      // Still return success since OTP is saved - user can resend
+    }
 
     res.json({
       status: 'success',
@@ -302,14 +305,17 @@ router.post('/otp/resend', async (req, res, next) => {
       }
     });
 
-    // Send OTP email (non-blocking)
-    sendOTPEmail({
-      to: normalizedEmail,
-      name: userName,
-      otp,
-    }).catch(err => {
-      console.error('Failed to resend OTP email:', err);
-    });
+    // Send OTP email
+    try {
+      await sendOTPEmail({
+        to: normalizedEmail,
+        name: userName,
+        otp,
+      });
+    } catch (emailError) {
+      console.error('Failed to resend OTP email:', emailError);
+      // Still return success since OTP is saved
+    }
 
     res.json({
       status: 'success',
