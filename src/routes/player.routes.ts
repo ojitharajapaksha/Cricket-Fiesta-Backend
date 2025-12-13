@@ -7,6 +7,35 @@ import { io } from '../index';
 
 const router = Router();
 
+// Get public players list (for public Players page - no auth required)
+router.get('/public', async (req, res, next) => {
+  try {
+    const players = await prisma.player.findMany({
+      select: {
+        id: true,
+        fullName: true,
+        department: true,
+        position: true,
+        battingStyle: true,
+        bowlingStyle: true,
+        experienceLevel: true,
+        team: {
+          select: {
+            id: true,
+            name: true,
+            shortName: true,
+          }
+        }
+      },
+      orderBy: [
+        { team: { name: 'asc' } },
+        { fullName: 'asc' }
+      ]
+    });
+    res.json({ status: 'success', data: players });
+  } catch (error) { next(error); }
+});
+
 // Get all players - accessible by all authenticated users
 router.get('/', authenticate, requireUser, async (req, res, next) => {
   try {
