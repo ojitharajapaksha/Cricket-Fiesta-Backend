@@ -38,13 +38,14 @@ router.get('/public', async (req, res, next) => {
 // Get all players - accessible by all authenticated users
 router.get('/', authenticate, requireUser, async (req, res, next) => {
   try {
-    const { department, position, teamId, attended } = req.query;
+    const { department, position, teamId, attended, email } = req.query;
 
     const where: any = {};
     if (department) where.department = department as string;
     if (position) where.position = position as string;
     if (teamId) where.teamId = teamId as string;
     if (attended !== undefined) where.attended = attended === 'true';
+    if (email) where.email = { equals: email as string, mode: 'insensitive' };
 
     const players = await prisma.player.findMany({
       where,
@@ -56,10 +57,35 @@ router.get('/', authenticate, requireUser, async (req, res, next) => {
       },
     });
 
+    // Get food registration data for each player based on traineeId
+    const traineeIds = players.map(p => p.traineeId);
+    const foodRegistrations = await prisma.foodRegistration.findMany({
+      where: {
+        traineeId: { in: traineeIds }
+      }
+    });
+
+    // Create a map for quick lookup
+    const foodRegMap = new Map(foodRegistrations.map(f => [f.traineeId, f]));
+
+    // Combine player data with food registration
+    const playersWithFood = players.map(player => {
+      const foodReg = foodRegMap.get(player.traineeId);
+      return {
+        ...player,
+        foodRegistration: foodReg ? {
+          id: foodReg.id,
+          foodPreference: foodReg.foodPreference,
+          foodCollected: foodReg.foodCollected,
+          foodCollectedAt: foodReg.foodCollectedAt,
+        } : null
+      };
+    });
+
     res.json({
       status: 'success',
-      data: players,
-      count: players.length,
+      data: playersWithFood,
+      count: playersWithFood.length,
     });
   } catch (error) {
     next(error);
