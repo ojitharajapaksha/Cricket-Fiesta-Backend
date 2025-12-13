@@ -2,6 +2,26 @@ import { Router } from 'express';
 import { prisma } from '../utils/prisma';
 const router = Router();
 
+// Get public committee members (for OC Members page - no auth required)
+router.get('/public', async (req, res, next) => {
+  try {
+    const members = await prisma.committee.findMany({
+      select: {
+        id: true,
+        fullName: true,
+        role: true,
+        imageUrl: true,
+        department: true,
+      },
+      orderBy: [
+        { role: 'asc' },
+        { fullName: 'asc' }
+      ]
+    });
+    res.json({ status: 'success', data: members });
+  } catch (error) { next(error); }
+});
+
 // Get all committee members
 router.get('/', async (req, res, next) => {
   try {
@@ -186,6 +206,29 @@ router.delete('/:id', async (req, res, next) => {
       where: { id: req.params.id }
     });
     res.json({ status: 'success', message: 'Committee member deleted' });
+  } catch (error) { next(error); }
+});
+
+// Update committee member (including role and imageUrl)
+router.put('/:id', async (req, res, next) => {
+  try {
+    const { fullName, role, imageUrl, department, whatsappNumber, emergencyContact, email, assignedTeam, experienceLevel } = req.body;
+    
+    const member = await prisma.committee.update({
+      where: { id: req.params.id },
+      data: {
+        ...(fullName && { fullName }),
+        ...(role !== undefined && { role }),
+        ...(imageUrl !== undefined && { imageUrl }),
+        ...(department && { department }),
+        ...(whatsappNumber && { whatsappNumber }),
+        ...(emergencyContact !== undefined && { emergencyContact }),
+        ...(email !== undefined && { email }),
+        ...(assignedTeam !== undefined && { assignedTeam }),
+        ...(experienceLevel && { experienceLevel }),
+      }
+    });
+    res.json({ status: 'success', data: member });
   } catch (error) { next(error); }
 });
 

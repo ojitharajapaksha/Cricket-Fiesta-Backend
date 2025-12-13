@@ -433,6 +433,8 @@ enum CounterStatus {
 model Committee {
   id                    String   @id @default(uuid())
   fullName              String
+  role                  String?  // Role in OC (e.g., "Event Coordinator", "Food Manager")
+  imageUrl              String?  // Profile image URL
   department            String
   whatsappNumber        String
   emergencyContact      String?
