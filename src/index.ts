@@ -117,6 +117,21 @@ httpServer.listen(PORT, () => {
   logger.info(`🚀 Server running on port ${PORT}`);
   logger.info(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
   logger.info(`🔗 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:3000'}`);
+  
+  // Keep-alive ping for Render free tier (prevents server from sleeping)
+  // Pings every 14 minutes to keep the server awake
+  if (process.env.NODE_ENV === 'production' && process.env.RENDER_EXTERNAL_URL) {
+    const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; // 14 minutes
+    setInterval(async () => {
+      try {
+        const response = await fetch(`${process.env.RENDER_EXTERNAL_URL}/health`);
+        logger.info(`Keep-alive ping: ${response.status}`);
+      } catch (error) {
+        logger.warn('Keep-alive ping failed:', error);
+      }
+    }, KEEP_ALIVE_INTERVAL);
+    logger.info('🔄 Keep-alive pings enabled (every 14 minutes)');
+  }
 });
 
 // Graceful shutdown
