@@ -133,6 +133,8 @@ model Player {
   battingStyle    String?
   bowlingStyle    String?
   experienceLevel ExperienceLevel
+  profileImage    String?        // Profile image URL
+  isApproved      Boolean        @default(false) // Approved by super admin to show on public pages
   attended        Boolean        @default(false)
   attendedAt      DateTime?
   qrCode          String         @unique
@@ -443,6 +445,7 @@ model Committee {
   fullName              String
   role                  String?  // Role in OC (e.g., "Event Coordinator", "Food Manager")
   imageUrl              String?  // Profile image URL
+  isApproved            Boolean  @default(false) // Approved by super admin to show on public pages
   department            String
   whatsappNumber        String
   emergencyContact      String?

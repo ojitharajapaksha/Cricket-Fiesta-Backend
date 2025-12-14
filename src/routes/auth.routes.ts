@@ -866,7 +866,10 @@ router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, r
     }
 
     const user = await prisma.user.findUnique({
-      where: { id }
+      where: { id },
+      include: {
+        player: true
+      }
     });
 
     if (!user) {
@@ -879,6 +882,7 @@ router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, r
     }
 
     const roleLabel = user.role === UserRole.ADMIN ? 'OC Member' : 'Player';
+    const isApproving = status === 'APPROVED';
 
     // Update user and create history in a transaction
     const [updatedUser] = await prisma.$transaction([
@@ -909,6 +913,30 @@ router.put('/admin/:id/approval', authenticate, requireSuperAdmin, async (req, r
         }
       })
     ]);
+
+    // Also update isApproved on Player or Committee record for public page visibility
+    if (user.email) {
+      // Update Player isApproved if user is a Player
+      if (user.role === UserRole.USER && user.player) {
+        await prisma.player.update({
+          where: { id: user.player.id },
+          data: { isApproved: isApproving }
+        });
+      }
+      
+      // Update Committee isApproved if user is an OC member (ADMIN)
+      if (user.role === UserRole.ADMIN) {
+        const committee = await prisma.committee.findFirst({
+          where: { email: { equals: user.email, mode: 'insensitive' } }
+        });
+        if (committee) {
+          await prisma.committee.update({
+            where: { id: committee.id },
+            data: { isApproved: isApproving }
+          });
+        }
+      }
+    }
 
     res.json({
       status: 'success',

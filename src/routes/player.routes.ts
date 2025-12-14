@@ -8,9 +8,13 @@ import { io } from '../index';
 const router = Router();
 
 // Get public players list (for public Players page - no auth required)
+// Only shows players approved by super admin
 router.get('/public', async (req, res, next) => {
   try {
     const players = await prisma.player.findMany({
+      where: {
+        isApproved: true  // Only show approved players on public page
+      },
       select: {
         id: true,
         fullName: true,
@@ -19,6 +23,7 @@ router.get('/public', async (req, res, next) => {
         battingStyle: true,
         bowlingStyle: true,
         experienceLevel: true,
+        profileImage: true,
         team: {
           select: {
             id: true,
@@ -413,6 +418,98 @@ router.get('/:id/stats', async (req, res, next) => {
     res.json({
       status: 'success',
       data: stats,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Update player profile image by email (for logged in users)
+router.put('/profile-image', authenticate, requireUser, async (req, res, next) => {
+  try {
+    const { email, profileImage } = req.body;
+    
+    if (!email || !profileImage) {
+      throw new AppError('Email and profile image URL are required', 400);
+    }
+    
+    // Find player by email
+    const player = await prisma.player.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } }
+    });
+    
+    if (!player) {
+      throw new AppError('Player not found', 404);
+    }
+    
+    // Update profile image
+    const updated = await prisma.player.update({
+      where: { id: player.id },
+      data: { profileImage }
+    });
+    
+    res.json({
+      status: 'success',
+      message: 'Profile image updated successfully',
+      data: updated
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Toggle player approval status for public page visibility (Super Admin only)
+router.put('/:id/approval', authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { isApproved } = req.body;
+    
+    if (typeof isApproved !== 'boolean') {
+      throw new AppError('isApproved must be a boolean', 400);
+    }
+    
+    const player = await prisma.player.findUnique({ where: { id } });
+    if (!player) {
+      throw new AppError('Player not found', 404);
+    }
+    
+    const updated = await prisma.player.update({
+      where: { id },
+      data: { isApproved }
+    });
+    
+    res.json({
+      status: 'success',
+      message: `Player ${isApproved ? 'approved' : 'unapproved'} for public page`,
+      data: updated
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Bulk approve/unapprove players (Super Admin only)
+router.put('/bulk-approval', authenticate, requireAdmin, async (req, res, next) => {
+  try {
+    const { playerIds, isApproved } = req.body;
+    
+    if (!Array.isArray(playerIds) || playerIds.length === 0) {
+      throw new AppError('playerIds must be a non-empty array', 400);
+    }
+    
+    if (typeof isApproved !== 'boolean') {
+      throw new AppError('isApproved must be a boolean', 400);
+    }
+    
+    const result = await prisma.player.updateMany({
+      where: { id: { in: playerIds } },
+      data: { isApproved }
+    });
+    
+    res.json({
+      status: 'success',
+      message: `${result.count} players ${isApproved ? 'approved' : 'unapproved'} for public page`,
+      data: { count: result.count }
     });
   } catch (error) {
     next(error);

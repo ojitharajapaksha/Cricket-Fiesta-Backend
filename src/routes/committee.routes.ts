@@ -3,9 +3,13 @@ import { prisma } from '../utils/prisma';
 const router = Router();
 
 // Get public committee members (for OC Members page - no auth required)
+// Only shows committee members approved by super admin
 router.get('/public', async (req, res, next) => {
   try {
     const members = await prisma.committee.findMany({
+      where: {
+        isApproved: true  // Only show approved OC members on public page
+      },
       select: {
         id: true,
         fullName: true,
@@ -229,6 +233,92 @@ router.put('/:id', async (req, res, next) => {
       }
     });
     res.json({ status: 'success', data: member });
+  } catch (error) { next(error); }
+});
+
+// Update committee member profile image by email (for logged in OC members)
+router.put('/profile-image/by-email', async (req, res, next) => {
+  try {
+    const { email, imageUrl } = req.body;
+    
+    if (!email || !imageUrl) {
+      return res.status(400).json({ status: 'error', message: 'Email and image URL are required' });
+    }
+    
+    // Find committee member by email
+    const member = await prisma.committee.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } }
+    });
+    
+    if (!member) {
+      return res.status(404).json({ status: 'error', message: 'Committee member not found' });
+    }
+    
+    // Update profile image
+    const updated = await prisma.committee.update({
+      where: { id: member.id },
+      data: { imageUrl }
+    });
+    
+    res.json({
+      status: 'success',
+      message: 'Profile image updated successfully',
+      data: updated
+    });
+  } catch (error) { next(error); }
+});
+
+// Toggle committee member approval status for public page visibility (Super Admin only)
+router.put('/:id/approval', async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { isApproved } = req.body;
+    
+    if (typeof isApproved !== 'boolean') {
+      return res.status(400).json({ status: 'error', message: 'isApproved must be a boolean' });
+    }
+    
+    const member = await prisma.committee.findUnique({ where: { id } });
+    if (!member) {
+      return res.status(404).json({ status: 'error', message: 'Committee member not found' });
+    }
+    
+    const updated = await prisma.committee.update({
+      where: { id },
+      data: { isApproved }
+    });
+    
+    res.json({
+      status: 'success',
+      message: `Committee member ${isApproved ? 'approved' : 'unapproved'} for public page`,
+      data: updated
+    });
+  } catch (error) { next(error); }
+});
+
+// Bulk approve/unapprove committee members (Super Admin only)
+router.put('/bulk-approval', async (req, res, next) => {
+  try {
+    const { memberIds, isApproved } = req.body;
+    
+    if (!Array.isArray(memberIds) || memberIds.length === 0) {
+      return res.status(400).json({ status: 'error', message: 'memberIds must be a non-empty array' });
+    }
+    
+    if (typeof isApproved !== 'boolean') {
+      return res.status(400).json({ status: 'error', message: 'isApproved must be a boolean' });
+    }
+    
+    const result = await prisma.committee.updateMany({
+      where: { id: { in: memberIds } },
+      data: { isApproved }
+    });
+    
+    res.json({
+      status: 'success',
+      message: `${result.count} committee members ${isApproved ? 'approved' : 'unapproved'} for public page`,
+      data: { count: result.count }
+    });
   } catch (error) { next(error); }
 });
 

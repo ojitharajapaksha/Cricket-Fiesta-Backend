@@ -201,7 +201,61 @@ router.post('/bulk-import', async (req, res, next) => {
   }
 });
 
-// Mark food as collected
+// Lookup person by traineeId - checks both FoodRegistration and Player tables
+router.get('/lookup/:traineeId', async (req, res, next) => {
+  try {
+    const { traineeId } = req.params;
+    
+    // First check FoodRegistration table
+    let registration = await prisma.foodRegistration.findUnique({
+      where: { traineeId },
+    });
+    
+    // If not found in FoodRegistration, check Player table
+    if (!registration) {
+      const player = await prisma.player.findUnique({
+        where: { traineeId },
+        include: { team: true }
+      });
+      
+      if (!player) {
+        throw new AppError('No registration found for this ID', 404);
+      }
+      
+      // Check if player already has a food registration record
+      const existingFoodReg = await prisma.foodRegistration.findFirst({
+        where: { traineeId: player.traineeId }
+      });
+      
+      if (existingFoodReg) {
+        registration = existingFoodReg;
+      } else {
+        // Return player info for display, will create food registration when collecting
+        return res.json({
+          status: 'success',
+          data: {
+            id: player.id,
+            traineeId: player.traineeId,
+            fullName: player.fullName,
+            email: player.email,
+            department: player.department,
+            foodPreference: 'NON_VEGETARIAN', // Default for players
+            foodCollected: false,
+            foodCollectedAt: null,
+            isPlayer: true, // Flag to indicate this is from Player table
+            team: player.team?.name || null
+          }
+        });
+      }
+    }
+    
+    res.json({ status: 'success', data: registration });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Mark food as collected by ID
 router.post('/registrations/:id/collect', async (req, res, next) => {
   try {
     const registration = await prisma.foodRegistration.findUnique({
@@ -243,6 +297,72 @@ router.post('/registrations/:id/collect', async (req, res, next) => {
   }
 });
 
+// Mark food as collected by traineeId - handles both players and trainees
+router.post('/collect-by-trainee/:traineeId', async (req, res, next) => {
+  try {
+    const { traineeId } = req.params;
+    
+    // First check FoodRegistration table
+    let registration = await prisma.foodRegistration.findUnique({
+      where: { traineeId },
+    });
+    
+    // If not found in FoodRegistration, check Player table and create registration
+    if (!registration) {
+      const player = await prisma.player.findUnique({
+        where: { traineeId },
+      });
+      
+      if (!player) {
+        throw new AppError('No registration found for this ID', 404);
+      }
+      
+      // Create a food registration record for the player on-the-fly
+      registration = await prisma.foodRegistration.create({
+        data: {
+          traineeId: player.traineeId,
+          fullName: player.fullName,
+          email: player.email,
+          contactNumber: player.contactNumber,
+          department: player.department,
+          foodPreference: 'NON_VEGETARIAN', // Default preference for players
+          qrCode: player.qrCode,
+          foodCollected: false,
+        }
+      });
+    }
+    
+    if (registration.foodCollected) {
+      throw new AppError('Food already collected', 400);
+    }
+    
+    const collectedAt = new Date();
+    const updated = await prisma.foodRegistration.update({
+      where: { traineeId },
+      data: {
+        foodCollected: true,
+        foodCollectedAt: collectedAt,
+      },
+    });
+    
+    // Send confirmation email (don't await - fire and forget)
+    if (registration.email) {
+      sendFoodCollectionConfirmationEmail({
+        to: registration.email,
+        name: registration.fullName,
+        traineeId: registration.traineeId,
+        department: registration.department,
+        foodPreference: registration.foodPreference,
+        collectedAt,
+      }).catch(() => {}); // Silently handle email errors
+    }
+    
+    res.json({ status: 'success', message: 'Food collected successfully', data: updated });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // Scan QR code for food collection
 router.post('/scan', async (req, res, next) => {
   try {
@@ -252,12 +372,43 @@ router.post('/scan', async (req, res, next) => {
       throw new AppError('Trainee ID is required', 400);
     }
     
-    const registration = await prisma.foodRegistration.findUnique({
+    // First check FoodRegistration table
+    let registration = await prisma.foodRegistration.findUnique({
       where: { traineeId },
     });
     
+    // If not found in FoodRegistration, check Player table
     if (!registration) {
-      throw new AppError('Registration not found', 404);
+      const player = await prisma.player.findUnique({
+        where: { traineeId },
+      });
+      
+      if (!player) {
+        throw new AppError('Registration not found', 404);
+      }
+      
+      // Check if player already has a food registration record
+      const existingFoodReg = await prisma.foodRegistration.findFirst({
+        where: { traineeId: player.traineeId }
+      });
+      
+      if (existingFoodReg) {
+        registration = existingFoodReg;
+      } else {
+        // Create a food registration record for the player on-the-fly
+        registration = await prisma.foodRegistration.create({
+          data: {
+            traineeId: player.traineeId,
+            fullName: player.fullName,
+            email: player.email,
+            contactNumber: player.contactNumber,
+            department: player.department,
+            foodPreference: 'NON_VEGETARIAN', // Default preference for players
+            qrCode: player.qrCode,
+            foodCollected: false,
+          }
+        });
+      }
     }
     
     if (registration.foodCollected) {
