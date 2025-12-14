@@ -86,8 +86,59 @@ router.get('/:id', async (req, res, next) => {
 // Create match
 router.post('/', async (req, res, next) => {
   try {
+    const { isProjectMatch, homeProject, awayProject, ...matchData } = req.body;
+
+    // Get next match number
+    const lastMatch = await prisma.match.findFirst({
+      orderBy: { matchNumber: 'desc' },
+    });
+    const matchNumber = (lastMatch?.matchNumber || 0) + 1;
+
+    let homeTeamId = matchData.homeTeamId;
+    let awayTeamId = matchData.awayTeamId;
+
+    // If it's a project-based match, create or find teams for projects
+    if (isProjectMatch && homeProject && awayProject) {
+      // Find or create home team for project
+      let homeTeam = await prisma.team.findFirst({
+        where: { name: homeProject },
+      });
+      if (!homeTeam) {
+        homeTeam = await prisma.team.create({
+          data: {
+            name: homeProject,
+            color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
+          },
+        });
+      }
+      homeTeamId = homeTeam.id;
+
+      // Find or create away team for project
+      let awayTeam = await prisma.team.findFirst({
+        where: { name: awayProject },
+      });
+      if (!awayTeam) {
+        awayTeam = await prisma.team.create({
+          data: {
+            name: awayProject,
+            color: '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0'),
+          },
+        });
+      }
+      awayTeamId = awayTeam.id;
+    }
+
+    if (!homeTeamId || !awayTeamId) {
+      throw new AppError('Home team and away team are required', 400);
+    }
+
     const match = await prisma.match.create({
-      data: req.body,
+      data: {
+        ...matchData,
+        matchNumber,
+        homeTeamId,
+        awayTeamId,
+      },
       include: {
         homeTeam: true,
         awayTeam: true,

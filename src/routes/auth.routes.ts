@@ -1257,4 +1257,37 @@ router.get('/profile', authenticate, async (req, res, next) => {
   }
 });
 
+// Get unique projects from users (for project-wise matches)
+router.get('/users/projects', authenticate, async (req, res, next) => {
+  try {
+    // Get distinct project names from users table
+    const users = await prisma.user.findMany({
+      where: {
+        projectName: {
+          not: null,
+        },
+        approvalStatus: 'APPROVED',
+      },
+      select: {
+        projectName: true,
+      },
+      distinct: ['projectName'],
+    });
+
+    // Extract unique project names and filter out nulls
+    const projects = users
+      .map(u => u.projectName)
+      .filter((p): p is string => p !== null && p.trim() !== '')
+      .sort();
+
+    res.json({
+      status: 'success',
+      data: projects,
+      count: projects.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
