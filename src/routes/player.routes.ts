@@ -85,6 +85,7 @@ router.get('/', authenticate, requireUser, async (req, res, next) => {
       return {
         ...player,
         projectName: player.user?.projectName || null,
+        isApproved: player.isApproved,
         foodRegistration: foodReg ? {
           id: foodReg.id,
           foodPreference: foodReg.foodPreference,
