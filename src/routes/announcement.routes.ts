@@ -66,7 +66,7 @@ router.post('/', authenticate, requireSuperAdmin, async (req, res, next) => {
         priority: priority || 0,
         startDate: startDate ? new Date(startDate) : new Date(),
         endDate: endDate ? new Date(endDate) : null,
-        createdBy: (req as any).user.id
+        createdBy: req.user!.userId
       }
     });
     
