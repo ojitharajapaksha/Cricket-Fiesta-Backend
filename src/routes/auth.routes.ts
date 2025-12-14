@@ -77,20 +77,20 @@ router.post('/google', async (req, res, next) => {
       role = 'ADMIN'; // OC members get ADMIN role
       additionalData.committeeId = committee.id;
       additionalData.assignedTeam = committee.assignedTeam;
-      autoApprove = true; // Committee members are auto-approved
+      autoApprove = false; // OC members need super admin approval
     } else if (player) {
       userType = 'player';
       dbUserType = 'PLAYER';
       role = 'USER';
       additionalData.playerId = player.id;
       additionalData.team = player.team;
-      autoApprove = true; // Players are auto-approved
+      autoApprove = false; // Players need admin approval
     } else if (foodRegistrant) {
       userType = 'food';
       dbUserType = 'TRAINEE';
       role = 'USER';
       additionalData.foodRegistrationId = foodRegistrant.id;
-      autoApprove = false; // Trainees need admin approval
+      autoApprove = true; // Trainees are auto-approved (already in system via bulk import)
     }
 
     // Check if user exists in User table
