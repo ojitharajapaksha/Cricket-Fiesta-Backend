@@ -37,6 +37,19 @@ router.get('/', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// Get single committee member by ID
+router.get('/:id', async (req, res, next) => {
+  try {
+    const member = await prisma.committee.findUnique({
+      where: { id: req.params.id }
+    });
+    if (!member) {
+      return res.status(404).json({ status: 'error', message: 'Committee member not found' });
+    }
+    res.json({ status: 'success', data: member });
+  } catch (error) { next(error); }
+});
+
 // Create new committee member
 router.post('/', async (req, res, next) => {
   try {
@@ -204,41 +217,8 @@ router.post('/:id/check-out', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// Delete committee member
-router.delete('/:id', async (req, res, next) => {
-  try {
-    await prisma.committee.delete({
-      where: { id: req.params.id }
-    });
-    res.json({ status: 'success', message: 'Committee member deleted' });
-  } catch (error) { next(error); }
-});
-
-// Update committee member (including role and imageUrl)
-router.put('/:id', async (req, res, next) => {
-  try {
-    const { fullName, role, roleOrder, imageUrl, department, whatsappNumber, emergencyContact, email, assignedTeam, experienceLevel } = req.body;
-    
-    const member = await prisma.committee.update({
-      where: { id: req.params.id },
-      data: {
-        ...(fullName && { fullName }),
-        ...(role !== undefined && { role }),
-        ...(roleOrder !== undefined && { roleOrder: parseInt(roleOrder) }),
-        ...(imageUrl !== undefined && { imageUrl }),
-        ...(department && { department }),
-        ...(whatsappNumber && { whatsappNumber }),
-        ...(emergencyContact !== undefined && { emergencyContact }),
-        ...(email !== undefined && { email }),
-        ...(assignedTeam !== undefined && { assignedTeam }),
-        ...(experienceLevel && { experienceLevel }),
-      }
-    });
-    res.json({ status: 'success', data: member });
-  } catch (error) { next(error); }
-});
-
 // Update committee member profile image by email (for logged in OC members)
+// NOTE: This route must come BEFORE /:id to avoid route conflicts
 router.put('/profile-image/by-email', async (req, res, next) => {
   try {
     const { email, imageUrl } = req.body;
@@ -270,7 +250,35 @@ router.put('/profile-image/by-email', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+// Bulk approve/unapprove committee members (Super Admin only)
+// NOTE: This route must come BEFORE /:id to avoid route conflicts
+router.put('/bulk-approval', async (req, res, next) => {
+  try {
+    const { memberIds, isApproved } = req.body;
+    
+    if (!Array.isArray(memberIds) || memberIds.length === 0) {
+      return res.status(400).json({ status: 'error', message: 'memberIds must be a non-empty array' });
+    }
+    
+    if (typeof isApproved !== 'boolean') {
+      return res.status(400).json({ status: 'error', message: 'isApproved must be a boolean' });
+    }
+    
+    const result = await prisma.committee.updateMany({
+      where: { id: { in: memberIds } },
+      data: { isApproved }
+    });
+    
+    res.json({
+      status: 'success',
+      message: `${result.count} committee members ${isApproved ? 'approved' : 'unapproved'} for public page`,
+      data: { count: result.count }
+    });
+  } catch (error) { next(error); }
+});
+
 // Toggle committee member approval status for public page visibility (Super Admin only)
+// NOTE: This route must come BEFORE the general PUT /:id to avoid conflicts
 router.put('/:id/approval', async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -298,29 +306,37 @@ router.put('/:id/approval', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-// Bulk approve/unapprove committee members (Super Admin only)
-router.put('/bulk-approval', async (req, res, next) => {
+// Update committee member (including role and imageUrl)
+router.put('/:id', async (req, res, next) => {
   try {
-    const { memberIds, isApproved } = req.body;
+    const { fullName, role, roleOrder, imageUrl, department, whatsappNumber, emergencyContact, email, assignedTeam, experienceLevel } = req.body;
     
-    if (!Array.isArray(memberIds) || memberIds.length === 0) {
-      return res.status(400).json({ status: 'error', message: 'memberIds must be a non-empty array' });
-    }
-    
-    if (typeof isApproved !== 'boolean') {
-      return res.status(400).json({ status: 'error', message: 'isApproved must be a boolean' });
-    }
-    
-    const result = await prisma.committee.updateMany({
-      where: { id: { in: memberIds } },
-      data: { isApproved }
+    const member = await prisma.committee.update({
+      where: { id: req.params.id },
+      data: {
+        ...(fullName && { fullName }),
+        ...(role !== undefined && { role }),
+        ...(roleOrder !== undefined && { roleOrder: parseInt(roleOrder) }),
+        ...(imageUrl !== undefined && { imageUrl }),
+        ...(department && { department }),
+        ...(whatsappNumber && { whatsappNumber }),
+        ...(emergencyContact !== undefined && { emergencyContact }),
+        ...(email !== undefined && { email }),
+        ...(assignedTeam !== undefined && { assignedTeam }),
+        ...(experienceLevel && { experienceLevel }),
+      }
     });
-    
-    res.json({
-      status: 'success',
-      message: `${result.count} committee members ${isApproved ? 'approved' : 'unapproved'} for public page`,
-      data: { count: result.count }
+    res.json({ status: 'success', data: member });
+  } catch (error) { next(error); }
+});
+
+// Delete committee member
+router.delete('/:id', async (req, res, next) => {
+  try {
+    await prisma.committee.delete({
+      where: { id: req.params.id }
     });
+    res.json({ status: 'success', message: 'Committee member deleted' });
   } catch (error) { next(error); }
 });
 
