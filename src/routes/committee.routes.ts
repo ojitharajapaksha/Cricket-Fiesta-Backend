@@ -14,12 +14,13 @@ router.get('/public', async (req, res, next) => {
         id: true,
         fullName: true,
         role: true,
+        roleOrder: true,
         imageUrl: true,
         department: true,
       },
       orderBy: [
-        { role: 'asc' },
-        { fullName: 'asc' }
+        { roleOrder: 'asc' },  // Sort by role order first (1, 2, 3...)
+        { fullName: 'asc' }     // Then by name
       ]
     });
     res.json({ status: 'success', data: members });
@@ -216,13 +217,14 @@ router.delete('/:id', async (req, res, next) => {
 // Update committee member (including role and imageUrl)
 router.put('/:id', async (req, res, next) => {
   try {
-    const { fullName, role, imageUrl, department, whatsappNumber, emergencyContact, email, assignedTeam, experienceLevel } = req.body;
+    const { fullName, role, roleOrder, imageUrl, department, whatsappNumber, emergencyContact, email, assignedTeam, experienceLevel } = req.body;
     
     const member = await prisma.committee.update({
       where: { id: req.params.id },
       data: {
         ...(fullName && { fullName }),
         ...(role !== undefined && { role }),
+        ...(roleOrder !== undefined && { roleOrder: parseInt(roleOrder) }),
         ...(imageUrl !== undefined && { imageUrl }),
         ...(department && { department }),
         ...(whatsappNumber && { whatsappNumber }),

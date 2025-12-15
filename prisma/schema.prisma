@@ -443,7 +443,8 @@ enum CounterStatus {
 model Committee {
   id                    String   @id @default(uuid())
   fullName              String
-  role                  String?  // Role in OC (e.g., "Event Coordinator", "Food Manager")
+  role                  String?  // Role in OC (e.g., "Main Organizer", "Event Coordinator", "Food Manager")
+  roleOrder             Int      @default(999) // Order for sorting (1 = Main Organizer first, 2, 3, etc.)
   imageUrl              String?  // Profile image URL
   isApproved            Boolean  @default(false) // Approved by super admin to show on public pages
   department            String
@@ -466,6 +467,7 @@ model Committee {
   updatedAt             DateTime @updatedAt
 
   @@index([department])
+  @@index([roleOrder])
 }
 
 // ==================== AWARDS ====================
