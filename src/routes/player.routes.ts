@@ -44,13 +44,22 @@ router.get('/public', async (req, res, next) => {
 
     // Map players to include projectName at top level
     const playersWithProject = players.map(player => ({
-      ...player,
+      id: player.id,
+      fullName: player.fullName,
+      department: player.department,
+      position: player.position,
+      battingStyle: player.battingStyle,
+      bowlingStyle: player.bowlingStyle,
+      experienceLevel: player.experienceLevel,
+      profileImage: player.profileImage,
       projectName: player.user?.projectName || null,
-      user: undefined, // Remove nested user object
+      team: player.team
     }));
 
     res.json({ status: 'success', data: playersWithProject });
-  } catch (error) { next(error); }
+  } catch (error) { 
+    next(error); 
+  }
 });
 
 // Get all players - accessible by all authenticated users
