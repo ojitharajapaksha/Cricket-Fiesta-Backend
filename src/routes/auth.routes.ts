@@ -148,6 +148,7 @@ router.post('/google', async (req, res, next) => {
           approvalStatus: approvalStatus,
           approvedAt: autoApprove ? new Date() : null,
           traineeId: player?.traineeId || foodRegistrant?.traineeId,
+          playerId: additionalData.playerId || null,
         }
       });
 
@@ -1284,6 +1285,69 @@ router.get('/users/projects', authenticate, async (req, res, next) => {
       status: 'success',
       data: projects,
       count: projects.length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Migration endpoint: Link users to players based on traineeId (Super Admin only)
+router.post('/migrate/link-users-players', authenticate, requireSuperAdmin, async (req, res, next) => {
+  try {
+    // Find all users that have a traineeId but no playerId
+    const usersWithoutPlayerId = await prisma.user.findMany({
+      where: {
+        traineeId: { not: null },
+        playerId: null,
+      },
+      select: {
+        id: true,
+        traineeId: true,
+        email: true,
+      },
+    });
+
+    const updates = [];
+    const errors = [];
+
+    // For each user, find the corresponding player and link them
+    for (const user of usersWithoutPlayerId) {
+      try {
+        const player = await prisma.player.findFirst({
+          where: {
+            OR: [
+              { traineeId: user.traineeId! },
+              { email: { equals: user.email, mode: 'insensitive' } },
+            ],
+          },
+        });
+
+        if (player) {
+          await prisma.user.update({
+            where: { id: user.id },
+            data: { playerId: player.id },
+          });
+          updates.push({ userId: user.id, playerId: player.id, traineeId: user.traineeId });
+        } else {
+          errors.push({ userId: user.id, traineeId: user.traineeId, error: 'No matching player found' });
+        }
+      } catch (error: any) {
+        errors.push({ userId: user.id, traineeId: user.traineeId, error: error.message });
+      }
+    }
+
+    res.json({
+      status: 'success',
+      message: `Migration completed. ${updates.length} users linked to players.`,
+      data: {
+        updated: updates,
+        errors: errors,
+        summary: {
+          totalProcessed: usersWithoutPlayerId.length,
+          successfulUpdates: updates.length,
+          failedUpdates: errors.length,
+        },
+      },
     });
   } catch (error) {
     next(error);
