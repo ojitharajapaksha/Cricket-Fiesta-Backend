@@ -49,7 +49,7 @@ const io = new Server(httpServer, {
     origin: [
       process.env.FRONTEND_URL || 'http://localhost:3000',
       'http://localhost:3000',
-      'https://cricket-fiesta-frontend.vercel.app'
+      'https://slt-trainees-cricket-fiesta.vercel.app'
     ],
     methods: ['GET', 'POST'],
     credentials: true,
@@ -63,7 +63,7 @@ app.use(cors({
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:3000',
     'http://localhost:3000',
-    'https://cricket-fiesta-frontend.vercel.app'
+    'https://slt-trainees-cricket-fiesta.vercel.app'
   ],
   credentials: true,
 }));
