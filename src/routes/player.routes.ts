@@ -29,6 +29,11 @@ router.get('/public', async (req, res, next) => {
             id: true,
             name: true,
           }
+        },
+        user: {
+          select: {
+            projectName: true,
+          }
         }
       },
       orderBy: [
@@ -36,7 +41,15 @@ router.get('/public', async (req, res, next) => {
         { fullName: 'asc' }
       ]
     });
-    res.json({ status: 'success', data: players });
+
+    // Map players to include projectName at top level
+    const playersWithProject = players.map(player => ({
+      ...player,
+      projectName: player.user?.projectName || null,
+      user: undefined, // Remove nested user object
+    }));
+
+    res.json({ status: 'success', data: playersWithProject });
   } catch (error) { next(error); }
 });
 

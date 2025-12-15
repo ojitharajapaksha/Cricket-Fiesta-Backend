@@ -127,4 +127,60 @@ router.get('/recent-activity', async (req, res, next) => {
   }
 });
 
+// Get project-wise player distribution (for Super Admin dashboard)
+router.get('/players-by-project', async (req, res, next) => {
+  try {
+    // Get all users with projectName who are players
+    const users = await prisma.user.findMany({
+      where: {
+        userType: 'PLAYER',
+        projectName: {
+          not: null,
+        },
+        approvalStatus: 'APPROVED',
+      },
+      select: {
+        projectName: true,
+      },
+    });
+
+    // Group by project name and count
+    const projectCounts = users.reduce((acc: Record<string, number>, user) => {
+      const project = user.projectName || 'Unassigned';
+      acc[project] = (acc[project] || 0) + 1;
+      return acc;
+    }, {});
+
+    // Also count players without project (users who haven't entered project yet)
+    const unassignedCount = await prisma.user.count({
+      where: {
+        userType: 'PLAYER',
+        approvalStatus: 'APPROVED',
+        OR: [
+          { projectName: null },
+          { projectName: '' },
+        ],
+      },
+    });
+
+    if (unassignedCount > 0) {
+      projectCounts['Not Entered'] = unassignedCount;
+    }
+
+    // Convert to array format for chart
+    const data = Object.entries(projectCounts).map(([project, count]) => ({
+      project,
+      count,
+    })).sort((a, b) => b.count - a.count);
+
+    res.json({
+      status: 'success',
+      data,
+      totalProjects: Object.keys(projectCounts).filter(k => k !== 'Not Entered').length,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
