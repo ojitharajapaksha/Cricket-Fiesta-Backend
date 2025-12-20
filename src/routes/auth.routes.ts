@@ -127,6 +127,7 @@ router.post('/google', async (req, res, next) => {
         data: { 
           firstName,
           lastName,
+          lastLoginAt: new Date(),
         }
       });
     } else {
@@ -149,6 +150,7 @@ router.post('/google', async (req, res, next) => {
           approvedAt: autoApprove ? new Date() : null,
           traineeId: player?.traineeId || foodRegistrant?.traineeId,
           playerId: additionalData.playerId || null,
+          lastLoginAt: autoApprove ? new Date() : null,
         }
       });
 
@@ -339,6 +341,12 @@ router.post('/otp/verify', async (req, res, next) => {
       if (existingUser.approvalStatus === 'PENDING') {
         throw new AppError('Your login request is pending approval. Please wait for admin approval.', 403);
       }
+
+      // Update last login time
+      await prisma.user.update({
+        where: { id: existingUser.id },
+        data: { lastLoginAt: new Date() }
+      });
 
       // User is approved - generate token
       const token = jwt.sign(

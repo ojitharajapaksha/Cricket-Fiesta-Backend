@@ -43,6 +43,7 @@ model User {
   approvalStatus ApprovalStatus @default(PENDING)
   approvedBy    String?         // Super Admin who approved
   approvedAt    DateTime?
+  lastLoginAt   DateTime?       // Track last login timestamp
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 

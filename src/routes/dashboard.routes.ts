@@ -183,4 +183,35 @@ router.get('/players-by-project', async (req, res, next) => {
   }
 });
 
+// Get all users with their last login information (Super Admin only)
+router.get('/last-logins', async (req, res, next) => {
+  try {
+    const users = await prisma.user.findMany({
+      select: {
+        id: true,
+        email: true,
+        firstName: true,
+        lastName: true,
+        role: true,
+        userType: true,
+        traineeId: true,
+        approvalStatus: true,
+        lastLoginAt: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: {
+        lastLoginAt: 'desc', // Most recent logins first
+      },
+    });
+
+    res.json({
+      status: 'success',
+      data: users,
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export default router;
