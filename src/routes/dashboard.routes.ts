@@ -26,8 +26,8 @@ router.get('/stats', async (req, res, next) => {
       prisma.match.count({ where: { status: 'COMPLETED' } }),
       prisma.foodRegistration.count(),
       prisma.foodRegistration.count({ where: { foodCollected: true } }),
-      prisma.committee.count(),
-      prisma.committee.count({ where: { checkedIn: true } }),
+      prisma.committee.count({ where: { isApproved: true } }), // Only count approved OC members
+      prisma.committee.count({ where: { checkedIn: true, isApproved: true } }),
     ]);
 
     const stats = {
