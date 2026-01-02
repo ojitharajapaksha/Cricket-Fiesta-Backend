@@ -43,7 +43,7 @@ interface SendQREmailOptions {
 }
 
 export const sendQRCodeEmail = async (options: SendQREmailOptions): Promise<boolean> => {
-  const { to, name, traineeId, qrCode, department, foodPreference, eventName = 'Cricket Fiesta 2025' } = options;
+  const { to, name, traineeId, qrCode, department, foodPreference, eventName = 'Cricket Fiesta 2026' } = options;
 
   // Extract base64 data from data URL
   const base64Data = qrCode.replace(/^data:image\/png;base64,/, '');
@@ -132,7 +132,7 @@ export const sendQRCodeEmail = async (options: SendQREmailOptions): Promise<bool
                       This is an automated email from ${eventName} Management System.
                     </p>
                     <p style="margin: 10px 0 0 0; color: #aaaaaa; font-size: 11px;">
-                      © 2025 SLT-Mobitel. All rights reserved.
+                      © 2026 SLT-Mobitel. All rights reserved.
                     </p>
                   </td>
                 </tr>
@@ -172,7 +172,7 @@ interface SendOTPEmailOptions {
 }
 
 export const sendOTPEmail = async (options: SendOTPEmailOptions): Promise<boolean> => {
-  const { to, name, otp, eventName = 'Cricket Fiesta 2025' } = options;
+  const { to, name, otp, eventName = 'Cricket Fiesta 2026' } = options;
 
   const mailOptions = {
     from: `"${eventName}" <${process.env.SMTP_USER}>`,
@@ -229,7 +229,7 @@ export const sendOTPEmail = async (options: SendOTPEmailOptions): Promise<boolea
                       If you didn't request this OTP, please ignore this email.
                     </p>
                     <p style="margin: 10px 0 0 0; color: #aaaaaa; font-size: 11px;">
-                      © 2025 SLT-Mobitel. All rights reserved.
+                      © 2026 SLT-Mobitel. All rights reserved.
                     </p>
                   </td>
                 </tr>
@@ -264,7 +264,7 @@ interface SendFoodCollectionConfirmationOptions {
 }
 
 export const sendFoodCollectionConfirmationEmail = async (options: SendFoodCollectionConfirmationOptions): Promise<boolean> => {
-  const { to, name, traineeId, department, foodPreference, collectedAt, eventName = 'Cricket Fiesta 2025' } = options;
+  const { to, name, traineeId, department, foodPreference, collectedAt, eventName = 'Cricket Fiesta 2026' } = options;
 
   const formattedDate = collectedAt.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -369,7 +369,7 @@ export const sendFoodCollectionConfirmationEmail = async (options: SendFoodColle
                       This is an automated confirmation from ${eventName} Management System.
                     </p>
                     <p style="margin: 10px 0 0 0; color: #aaaaaa; font-size: 11px;">
-                      © 2025 SLT-Mobitel. All rights reserved.
+                      © 2026 SLT-Mobitel. All rights reserved.
                     </p>
                   </td>
                 </tr>
